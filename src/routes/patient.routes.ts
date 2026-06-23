@@ -1,30 +1,62 @@
 import express from "express";
-import { protect } from "../middleware/auth.middleware";
 
-// import tanan controller functions
 import {
   createPatient,
   getPatients,
   getPatientById,
   updatePatient,
-  deletePatient
+  deletePatient,
 } from "../controllers/patient.controller";
+
+import { protect } from "../middleware/auth.middleware";
+import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
 
-// CREATE
-router.post("/", createPatient);
 
-// READ ALL
-router.get("/", protect, getPatients);
+// Nurse only create
+router.post(
+  "/",
+  protect,
+  allowRoles("nurse"),
+  createPatient
+);
 
-// READ ONE
-router.get("/:id", getPatientById);
 
-// UPDATE
-router.put("/:id", updatePatient);
+// Doctor + Nurse view patients
+router.get(
+  "/",
+  protect,
+  allowRoles("doctor", "nurse"),
+  getPatients
+);
 
-// DELETE
-router.delete("/:id", deletePatient);
+
+// Doctor + Nurse view single patient
+router.get(
+  "/:id",
+  protect,
+  allowRoles("doctor", "nurse"),
+  getPatientById
+);
+
+
+// Nurse update patient
+router.put(
+  "/:id",
+  protect,
+  allowRoles("nurse"),
+  updatePatient
+);
+
+
+// Nobody should really delete patients in a clinic
+// but if needed admin only
+router.delete(
+  "/:id",
+  protect,
+  allowRoles("admin"),
+  deletePatient
+);
 
 export default router;

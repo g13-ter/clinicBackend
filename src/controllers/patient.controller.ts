@@ -1,63 +1,159 @@
+import { Request, Response } from "express";
 import Patient from "../models/patient.model";
 
-// CREATE patient
-export const createPatient = async (req: any, res: any) => {
+
+// CREATE PATIENT
+export const createPatient = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
 
   try {
 
-    // sulayi save ang patient
     const patient = await Patient.create(req.body);
 
     res.status(201).json(patient);
 
   } catch (error: any) {
 
-    // kung naay error, ipadala
     res.status(400).json({
-      message: error.message
+      message: error.message,
     });
 
   }
+
 };
 
 
-// GET all patients
-export const getPatients = async (req: any, res: any) => {
+// GET ALL PATIENTS
+export const getPatients = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
 
-  // kuhaon tanan patients
-  const patients = await Patient.find();
+  try {
 
-  res.json(patients);
+    const patients = await Patient.find();
+
+    res.status(200).json(patients);
+
+  } catch (error: any) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
 };
 
 
-// GET single patient
-export const getPatientById = async (req: any, res: any) => {
+// GET PATIENT BY ID
+export const getPatientById = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
 
-  const patient = await Patient.findById(req.params.id);
+  try {
 
-  res.json(patient);
+    const patient = await Patient.findById(
+      req.params.id
+    );
+
+    if (!patient) {
+
+      res.status(404).json({
+        message: "Patient not found",
+      });
+
+      return;
+    }
+
+    res.status(200).json(patient);
+
+  } catch (error: any) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
 };
 
 
-// UPDATE patient
-export const updatePatient = async (req: any, res: any) => {
+// UPDATE PATIENT
+export const updatePatient = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
 
-  const patient = await Patient.findByIdAndUpdate(
-    req.params.id,
-    req.body,
-    { new: true }
-  );
+  try {
 
-  res.json(patient);
+    const patient =
+      await Patient.findByIdAndUpdate(
+        req.params.id,
+        req.body,
+        {
+          new: true,
+          runValidators: true,
+        }
+      );
+
+    if (!patient) {
+
+      res.status(404).json({
+        message: "Patient not found",
+      });
+
+      return;
+    }
+
+    res.status(200).json(patient);
+
+  } catch (error: any) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
 };
 
 
-// DELETE patient
-export const deletePatient = async (req: any, res: any) => {
+// DELETE PATIENT
+export const deletePatient = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
 
-  const patient = await Patient.findByIdAndDelete(req.params.id);
+  try {
 
-  res.json(patient);
+    const patient =
+      await Patient.findByIdAndDelete(
+        req.params.id
+      );
+
+    if (!patient) {
+
+      res.status(404).json({
+        message: "Patient not found",
+      });
+
+      return;
+    }
+
+    res.status(200).json({
+      message: "Patient deleted successfully",
+    });
+
+  } catch (error: any) {
+
+    res.status(500).json({
+      message: error.message,
+    });
+
+  }
+
 };
-

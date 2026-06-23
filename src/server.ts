@@ -5,6 +5,7 @@ import connectDB from "./config/db";
 import userRoutes from "./routes/user.routes"; // Import routes
 import patientRoutes from "./routes/patient.routes";
 import authRoutes from "./routes/auth.routes";
+import clinicVisitRoutes from "./routes/clinicVisit.routes";
 
 dotenv.config();
 
@@ -21,6 +22,8 @@ app.use("/api/users", userRoutes);
 app.use("/api/patients", patientRoutes);
 
 app.use("/api/auth", authRoutes);
+
+app.use("/api/visits",clinicVisitRoutes);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("School clinic API Running");
