@@ -77,16 +77,15 @@ export const login = async (req: any, res: any) => {
 
     // himo ug JWT token para ma-authenticate ang user
     const token = jwt.sign(
-      {
-        id: user._id,
-        role: user.role
-      },
-      "secretkey",
-      {
-        expiresIn: "1d"
-      }
-    );
-
+  {
+    id: user._id,
+    role: user.role
+  },
+  process.env.JWT_SECRET || "secretkey",
+  {
+    expiresIn: (process.env.JWT_EXPIRE || "1d") as any
+  }
+);
 
     // ipadala ang token
     res.json({
