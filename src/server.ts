@@ -6,6 +6,7 @@ import userRoutes from "./routes/user.routes"; // Import routes
 import patientRoutes from "./routes/patient.routes";
 import authRoutes from "./routes/auth.routes";
 import clinicVisitRoutes from "./routes/clinicVisit.routes";
+import medicalHistoryRoutes from "./routes/medicalHistory.routes";
 
 dotenv.config();
 
@@ -23,7 +24,9 @@ app.use("/api/patients", patientRoutes);
 
 app.use("/api/auth", authRoutes);
 
-app.use("/api/visits",clinicVisitRoutes);
+app.use("/api/visits", clinicVisitRoutes);
+
+app.use("/api/medical-history", medicalHistoryRoutes);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("School clinic API Running");
