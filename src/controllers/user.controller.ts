@@ -1,12 +1,14 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import User from "../models/user.model";
 import bcrypt from "bcryptjs";
+import { AppError } from "../middleware/error.middleware";
 
 
 // CREATE USER
 export const createUser = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -15,29 +17,13 @@ export const createUser = async (
     const { name, email, password, role } = req.body;
 
 
-    // validation
-    if (!name || !email || !password || !role) {
-
-      res.status(400).json({
-        message: "All fields are required",
-      });
-
-      return;
-    }
-
-
     // check kung naa na ang email
     const existingUser = await User.findOne({
       email,
     });
 
     if (existingUser) {
-
-      res.status(400).json({
-        message: "Email already exists",
-      });
-
-      return;
+      throw new AppError("Email already exists", 400);
     }
 
 
@@ -72,10 +58,7 @@ export const createUser = async (
 
   } catch (error) {
 
-    res.status(500).json({
-      message: "Server Error",
-      error,
-    });
+    next(error);
 
   }
 
@@ -85,7 +68,8 @@ export const createUser = async (
 // GET ALL USERS
 export const getUsers = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -97,10 +81,7 @@ export const getUsers = async (
 
   } catch (error) {
 
-    res.status(500).json({
-      message: "Server Error",
-      error,
-    });
+    next(error);
 
   }
 
@@ -110,7 +91,8 @@ export const getUsers = async (
 // GET USER BY ID
 export const getUserById = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -121,12 +103,7 @@ export const getUserById = async (
 
 
     if (!user) {
-
-      res.status(404).json({
-        message: "User not found",
-      });
-
-      return;
+      throw new AppError("User not found", 404);
     }
 
 
@@ -134,10 +111,63 @@ export const getUserById = async (
 
   } catch (error) {
 
-    res.status(500).json({
-      message: "Server Error",
-      error,
+    next(error);
+
+  }
+
+};
+
+
+// UPDATE USER
+export const updateUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+
+  try {
+
+    const { name, email, password, role } = req.body;
+
+    const updateData: any = { name, email, role };
+
+
+    // kung naa bag-ong password, i-hash sa una
+    if (password) {
+
+      const salt = await bcrypt.genSalt(10);
+
+      updateData.password = await bcrypt.hash(
+        password,
+        salt
+      );
+
+    }
+
+
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      {
+        new: true,
+        runValidators: true,
+      }
+    ).select("-password");
+
+
+    if (!user) {
+      throw new AppError("User not found", 404);
+    }
+
+
+    res.status(200).json({
+      message: "User updated successfully",
+      user,
     });
+
+  } catch (error) {
+
+    next(error);
 
   }
 
@@ -147,7 +177,8 @@ export const getUserById = async (
 // DELETE USER
 export const deleteUser = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -158,12 +189,7 @@ export const deleteUser = async (
 
 
     if (!user) {
-
-      res.status(404).json({
-        message: "User not found",
-      });
-
-      return;
+      throw new AppError("User not found", 404);
     }
 
 
@@ -173,10 +199,7 @@ export const deleteUser = async (
 
   } catch (error) {
 
-    res.status(500).json({
-      message: "Server Error",
-      error,
-    });
+    next(error);
 
   }
 

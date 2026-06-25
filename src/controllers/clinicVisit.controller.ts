@@ -1,11 +1,13 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import ClinicVisit from "../models/clinicVisit.model";
+import { AppError } from "../middleware/error.middleware";
 
 
 // CREATE VISIT
 export const createVisit = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -14,26 +16,26 @@ export const createVisit = async (
       patientId,
       complaint,
       treatment,
-      notes
+      notes,
+      bloodPressure,
+      temperature,
+      pulseRate
     } = req.body;
 
 
-    // validation
-    if (!patientId || !complaint) {
-
-      res.status(400).json({
-        message: "Patient ID and Complaint are required"
-      });
-
-      return;
-    }
+    // recordedBy comes from the logged-in nurse's token
+    const recordedBy = (req as any).user.id;
 
 
     const visit = await ClinicVisit.create({
       patientId,
       complaint,
       treatment,
-      notes
+      notes,
+      bloodPressure,
+      temperature,
+      pulseRate,
+      recordedBy
     });
 
 
@@ -42,11 +44,9 @@ export const createVisit = async (
       visit
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 
@@ -56,7 +56,8 @@ export const createVisit = async (
 // GET ALL VISITS OF A PATIENT
 export const getVisitsByPatient = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -64,17 +65,12 @@ export const getVisitsByPatient = async (
     const patientId = req.params.patientId;
 
     if (!patientId) {
-
-      res.status(400).json({
-        message: "Patient ID is required"
-      });
-
-      return;
+      throw new AppError("Patient ID is required", 400);
     }
 
-
     const visits = await ClinicVisit.find({
-      patientId: patientId
+      patientId: patientId,
+      isActive: true
     })
       .populate("patientId")
       .sort({
@@ -84,11 +80,9 @@ export const getVisitsByPatient = async (
 
     res.status(200).json(visits);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 
@@ -98,7 +92,8 @@ export const getVisitsByPatient = async (
 // GET SINGLE VISIT
 export const getVisitById = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -109,22 +104,15 @@ export const getVisitById = async (
 
 
     if (!visit) {
-
-      res.status(404).json({
-        message: "Clinic visit not found"
-      });
-
-      return;
+      throw new AppError("Clinic visit not found", 404);
     }
 
 
     res.status(200).json(visit);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 
@@ -134,7 +122,8 @@ export const getVisitById = async (
 // UPDATE VISIT
 export const updateVisit = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -150,12 +139,7 @@ export const updateVisit = async (
       );
 
     if (!visit) {
-
-      res.status(404).json({
-        message: "Clinic visit not found"
-      });
-
-      return;
+      throw new AppError("Clinic visit not found", 404);
     }
 
 
@@ -164,49 +148,44 @@ export const updateVisit = async (
       visit
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 
 };
 
 
-// DELETE VISIT
-export const deleteVisit = async (
+// ARCHIVE VISIT (soft delete - admin only)
+export const archiveVisit = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
     const visit =
-      await ClinicVisit.findByIdAndDelete(
-        req.params.id
+      await ClinicVisit.findByIdAndUpdate(
+        req.params.id,
+        { isActive: false },
+        { new: true }
       );
 
     if (!visit) {
-
-      res.status(404).json({
-        message: "Clinic visit not found"
-      });
-
-      return;
+      throw new AppError("Clinic visit not found", 404);
     }
 
 
     res.status(200).json({
-      message: "Clinic visit deleted successfully"
+      message: "Clinic visit archived successfully",
+      visit
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 

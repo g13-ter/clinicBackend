@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { AppError } from "./error.middleware";
 
 
 // function para mo-check sa allowed roles
@@ -14,9 +15,7 @@ export const allowRoles = (...roles: string[]) => {
     // kung dili apil ang role
     if (!roles.includes(userRole)) {
 
-      return res.status(403).json({
-        message: "Access denied"
-      });
+      return next(new AppError("Access denied", 403));
 
     }
 

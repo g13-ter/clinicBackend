@@ -1,11 +1,13 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import Patient from "../models/patient.model";
+import { AppError } from "../middleware/error.middleware";
 
 
 // CREATE PATIENT
 export const createPatient = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -14,34 +16,64 @@ export const createPatient = async (
 
     res.status(201).json(patient);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(400).json({
-      message: error.message,
-    });
+    next(error);
 
   }
 
 };
 
 
-// GET ALL PATIENTS
+// GET ALL PATIENTS (full info - doctor/nurse)
 export const getPatients = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
-    const patients = await Patient.find();
+    // by default only show active patients
+    // pass ?includeInactive=true to see archived ones too
+    const filter =
+      req.query.includeInactive === "true"
+        ? {}
+        : { isActive: true };
+
+    const patients = await Patient.find(filter);
 
     res.status(200).json(patients);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message,
-    });
+    next(error);
+
+  }
+
+};
+
+
+// GET PATIENT LIST - BASIC INFO ONLY (for staff)
+export const getPatientsBasic = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+
+  try {
+
+    const patients = await Patient.find(
+      { isActive: true }
+    ).select(
+      "studentId firstName lastName course yearLevel"
+    );
+
+    res.status(200).json(patients);
+
+  } catch (error) {
+
+    next(error);
 
   }
 
@@ -51,7 +83,8 @@ export const getPatients = async (
 // GET PATIENT BY ID
 export const getPatientById = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -61,21 +94,14 @@ export const getPatientById = async (
     );
 
     if (!patient) {
-
-      res.status(404).json({
-        message: "Patient not found",
-      });
-
-      return;
+      throw new AppError("Patient not found", 404);
     }
 
     res.status(200).json(patient);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message,
-    });
+    next(error);
 
   }
 
@@ -85,7 +111,8 @@ export const getPatientById = async (
 // UPDATE PATIENT
 export const updatePatient = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
@@ -101,58 +128,49 @@ export const updatePatient = async (
       );
 
     if (!patient) {
-
-      res.status(404).json({
-        message: "Patient not found",
-      });
-
-      return;
+      throw new AppError("Patient not found", 404);
     }
 
     res.status(200).json(patient);
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message,
-    });
+    next(error);
 
   }
 
 };
 
 
-// DELETE PATIENT
-export const deletePatient = async (
+// ARCHIVE PATIENT (soft delete - admin only)
+// We never truly delete patient records, just mark them inactive
+export const archivePatient = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
     const patient =
-      await Patient.findByIdAndDelete(
-        req.params.id
+      await Patient.findByIdAndUpdate(
+        req.params.id,
+        { isActive: false },
+        { new: true }
       );
 
     if (!patient) {
-
-      res.status(404).json({
-        message: "Patient not found",
-      });
-
-      return;
+      throw new AppError("Patient not found", 404);
     }
 
     res.status(200).json({
-      message: "Patient deleted successfully",
+      message: "Patient archived successfully",
+      patient,
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message,
-    });
+    next(error);
 
   }
 

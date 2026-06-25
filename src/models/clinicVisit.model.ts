@@ -16,6 +16,16 @@ export interface IClinicVisit
 
   visitDate: Date;
 
+  bloodPressure: string;
+
+  temperature: number;
+
+  pulseRate: number;
+
+  recordedBy: mongoose.Types.ObjectId;
+
+  isActive: boolean;
+
 }
 
 const ClinicVisitSchema =
@@ -44,6 +54,28 @@ const ClinicVisitSchema =
       visitDate: {
         type: Date,
         default: Date.now,
+      },
+
+      bloodPressure: {
+        type: String,
+      },
+
+      temperature: {
+        type: Number,
+      },
+
+      pulseRate: {
+        type: Number,
+      },
+
+      recordedBy: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+      },
+
+      isActive: {
+        type: Boolean,
+        default: true,
       },
 
     },

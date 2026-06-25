@@ -3,27 +3,40 @@ import express from "express";
 import {
   createPatient,
   getPatients,
+  getPatientsBasic,
   getPatientById,
   updatePatient,
-  deletePatient,
+  archivePatient,
 } from "../controllers/patient.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { createPatientSchema, updatePatientSchema } from "../validators/schemas";
 
 const router = express.Router();
 
 
-// Nurse only create
+// Nurse only - create patient
 router.post(
   "/",
   protect,
   allowRoles("nurse"),
+  validateBody(createPatientSchema),
   createPatient
 );
 
 
-// Doctor + Nurse view patients
+// Staff - basic info list only
+router.get(
+  "/basic",
+  protect,
+  allowRoles("staff"),
+  getPatientsBasic
+);
+
+
+// Doctor + Nurse - full patient list
 router.get(
   "/",
   protect,
@@ -32,7 +45,7 @@ router.get(
 );
 
 
-// Doctor + Nurse view single patient
+// Doctor + Nurse - view single patient (full info)
 router.get(
   "/:id",
   protect,
@@ -41,22 +54,22 @@ router.get(
 );
 
 
-// Nurse update patient
+// Admin only - update basic patient info (not medical data)
 router.put(
   "/:id",
   protect,
-  allowRoles("nurse"),
+  allowRoles("admin"),
+  validateBody(updatePatientSchema),
   updatePatient
 );
 
 
-// Nobody should really delete patients in a clinic
-// but if needed admin only
+// Admin only - archive (soft delete) a patient
 router.delete(
   "/:id",
   protect,
   allowRoles("admin"),
-  deletePatient
+  archivePatient
 );
 
 export default router;

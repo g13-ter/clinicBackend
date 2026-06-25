@@ -1,146 +1,152 @@
-import { Request, Response } from "express";
+import { Request, Response, NextFunction } from "express";
 import MedicalHistory from "../models/medicalHistory.model";
-import Patient from "../models/patient.model";
+import { AppError } from "../middleware/error.middleware";
 
 
-// CREATE MEDICAL HISTORY
-// Called once when a patient's record is first set up
+// CREATE MEDICAL HISTORY ENTRY
 export const createMedicalHistory = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
-    const { patientId } = req.body;
+    const {
+      patientId,
+      diagnosis,
+      prescription,
+      familyHistory,
+      allergies
+    } = req.body;
 
-    // patientId is required — everything else is optional
-    if (!patientId) {
 
-      res.status(400).json({
-        message: "Patient ID is required"
-      });
+    const recordedBy = (req as any).user.id;
 
-      return;
-    }
 
-    // Make sure the patient actually exists in the DB
-    const patientExists = await Patient.findById(patientId);
+    const entry = await MedicalHistory.create({
+      patientId,
+      diagnosis,
+      prescription,
+      familyHistory,
+      allergies,
+      recordedBy
+    });
 
-    if (!patientExists) {
-
-      res.status(404).json({
-        message: "Patient not found"
-      });
-
-      return;
-    }
-
-    // Block duplicate — each patient can only have ONE medical history record
-    const alreadyExists = await MedicalHistory.findOne({ patientId });
-
-    if (alreadyExists) {
-
-      res.status(409).json({
-        message: "Medical history already exists for this patient. Use update instead."
-      });
-
-      return;
-    }
-
-    const medicalHistory = await MedicalHistory.create(req.body);
 
     res.status(201).json({
-      message: "Medical history created successfully",
-      medicalHistory
+      message: "Medical history entry created successfully",
+      entry
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 
 };
 
 
-// GET MEDICAL HISTORY BY PATIENT ID
-export const getMedicalHistoryByPatient = async (
+// GET ALL MEDICAL HISTORY FOR ONE PATIENT
+export const getHistoryByPatient = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
-    const { patientId } = req.params;
+    const patientId = req.params.patientId;
 
-    const medicalHistory = await MedicalHistory
-      .findOne({ patientId })
-      .populate("patientId");  // pulls in full patient details
-
-    if (!medicalHistory) {
-
-      res.status(404).json({
-        message: "No medical history found for this patient"
-      });
-
-      return;
+    if (!patientId) {
+      throw new AppError("Patient ID is required", 400);
     }
 
-    res.status(200).json(medicalHistory);
+    const history = await MedicalHistory.find({
+      patientId: patientId
+    })
+      .populate("patientId")
+      .populate("recordedBy", "name role")
+      .sort({
+        dateRecorded: -1
+      });
 
-  } catch (error: any) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    res.status(200).json(history);
+
+  } catch (error) {
+
+    next(error);
 
   }
 
 };
 
 
-// UPDATE MEDICAL HISTORY
-// Doctors/nurses add new allergies, medications, etc. over time
-export const updateMedicalHistory = async (
+// GET SINGLE MEDICAL HISTORY ENTRY
+export const getHistoryById = async (
   req: Request,
-  res: Response
+  res: Response,
+  next: NextFunction
 ): Promise<void> => {
 
   try {
 
-    const { patientId } = req.params;
+    const entry = await MedicalHistory.findById(
+      req.params.id
+    )
+      .populate("patientId")
+      .populate("recordedBy", "name role");
 
-    const medicalHistory = await MedicalHistory.findOneAndUpdate(
-      { patientId },      // find by patientId, not Mongo _id
+
+    if (!entry) {
+      throw new AppError("Medical history entry not found", 404);
+    }
+
+
+    res.status(200).json(entry);
+
+  } catch (error) {
+
+    next(error);
+
+  }
+
+};
+
+
+// UPDATE MEDICAL HISTORY ENTRY
+export const updateMedicalHistory = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+
+  try {
+
+    const entry = await MedicalHistory.findByIdAndUpdate(
+      req.params.id,
       req.body,
       {
-        new: true,          // return the updated document
-        runValidators: true // enforce schema rules (e.g. bloodType enum)
+        new: true,
+        runValidators: true
       }
     );
 
-    if (!medicalHistory) {
-
-      res.status(404).json({
-        message: "No medical history found for this patient"
-      });
-
-      return;
+    if (!entry) {
+      throw new AppError("Medical history entry not found", 404);
     }
 
+
     res.status(200).json({
-      message: "Medical history updated successfully",
-      medicalHistory
+      message: "Medical history entry updated successfully",
+      entry
     });
 
-  } catch (error: any) {
+  } catch (error) {
 
-    res.status(500).json({
-      message: error.message
-    });
+    next(error);
 
   }
 

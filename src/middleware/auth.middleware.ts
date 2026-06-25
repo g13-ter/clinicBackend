@@ -24,9 +24,11 @@ export const protect = (
       });
     }
 
+    // process.env.JWT_SECRET is guaranteed to exist here because
+    // server.ts checks for it on startup and exits if it's missing
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "secretkey"
+      process.env.JWT_SECRET as string
     );
 
     (req as any).user = decoded;

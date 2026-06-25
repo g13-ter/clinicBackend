@@ -2,41 +2,40 @@ import express from "express";
 
 import {
   createMedicalHistory,
-  getMedicalHistoryByPatient,
+  getHistoryByPatient,
+  getHistoryById,
   updateMedicalHistory
 } from "../controllers/medicalHistory.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
+import { validateBody } from "../middleware/validate.middleware";
+import { createMedicalHistorySchema, updateMedicalHistorySchema } from "../validators/schemas";
 
 const router = express.Router();
 
 
-// Nurse creates the initial record during patient enrollment
+// Doctor only - create new entry
 router.post(
   "/",
   protect,
-  allowRoles("nurse"),
+  allowRoles("doctor"),
+  validateBody(createMedicalHistorySchema),
   createMedicalHistory
 );
 
+// Doctor + Nurse (read-only for nurse, enforced by allowing GET only)
+router.get("/patient/:patientId", protect, allowRoles("doctor", "nurse"), getHistoryByPatient);
 
-// Doctor + Nurse can view
-router.get(
-  "/patient/:patientId",
-  protect,
-  allowRoles("doctor", "nurse"),
-  getMedicalHistoryByPatient
-);
+router.get("/:id", protect, allowRoles("doctor", "nurse"), getHistoryById);
 
-
-// Doctor + Nurse can update (add new medications, allergies, etc.)
+// Doctor only - update
 router.put(
-  "/patient/:patientId",
+  "/:id",
   protect,
-  allowRoles("doctor", "nurse"),
+  allowRoles("doctor"),
+  validateBody(updateMedicalHistorySchema),
   updateMedicalHistory
 );
-
 
 export default router;
