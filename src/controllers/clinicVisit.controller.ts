@@ -1,33 +1,15 @@
 import { Request, Response, NextFunction } from "express";
-import ClinicVisit from "../models/clinicVisit.model";
-import { AppError } from "../middleware/error.middleware";
+import { ClinicVisitService } from "../services/clinicVisit.service";
 
+const clinicVisitService = new ClinicVisitService();
 
-// CREATE VISIT
-export const createVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// CREATE
+export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const {
-      patientId,
-      complaint,
-      treatment,
-      notes,
-      bloodPressure,
-      temperature,
-      pulseRate
-    } = req.body;
-
-
-    // recordedBy comes from the logged-in nurse's token
+    const { patientId, complaint, treatment, notes, bloodPressure, temperature, pulseRate } = req.body;
     const recordedBy = (req as any).user.id;
 
-
-    const visit = await ClinicVisit.create({
+    const visit = await clinicVisitService.createVisit({
       patientId,
       complaint,
       treatment,
@@ -35,158 +17,55 @@ export const createVisit = async (
       bloodPressure,
       temperature,
       pulseRate,
-      recordedBy
+      recordedBy,
     });
 
-
-    res.status(201).json({
-      message: "Clinic visit created successfully",
-      visit
-    });
-
+    res.status(201).json({ message: "Clinic visit created successfully", visit });
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// GET ALL VISITS OF A PATIENT
-export const getVisitsByPatient = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET ALL BY PATIENT
+export const getVisitsByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const patientId = req.params.patientId;
-
-    if (!patientId) {
-      throw new AppError("Patient ID is required", 400);
-    }
-
-    const visits = await ClinicVisit.find({
-      patientId: patientId,
-      isActive: true
-    })
-      .populate("patientId")
-      .sort({
-        visitDate: -1
-      });
-
-
+    const patientId = req.params.patientId as string; // ✅ cast to string
+    const visits = await clinicVisitService.getVisitsByPatient(patientId);
     res.status(200).json(visits);
-
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// GET SINGLE VISIT
-export const getVisitById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET BY ID
+export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const visit = await ClinicVisit.findById(
-      req.params.id
-    ).populate("patientId");
-
-
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
-
+    const id = req.params.id as string; // ✅ cast to string
+    const visit = await clinicVisitService.getVisitById(id);
     res.status(200).json(visit);
-
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// UPDATE VISIT
-export const updateVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// UPDATE
+export const updateVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const visit =
-      await ClinicVisit.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {
-          new: true,
-          runValidators: true
-        }
-      );
-
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
-
-    res.status(200).json({
-      message: "Clinic visit updated successfully",
-      visit
-    });
-
+    const id = req.params.id as string; // ✅ cast to string
+    const visit = await clinicVisitService.updateVisit(id, req.body);
+    res.status(200).json({ message: "Clinic visit updated successfully", visit });
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// ARCHIVE VISIT (soft delete - admin only)
-export const archiveVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// ARCHIVE (soft delete)
+export const archiveVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const visit =
-      await ClinicVisit.findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true }
-      );
-
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
-
-    res.status(200).json({
-      message: "Clinic visit archived successfully",
-      visit
-    });
-
+    const id = req.params.id as string; // ✅ cast to string
+    const visit = await clinicVisitService.archiveVisit(id);
+    res.status(200).json({ message: "Clinic visit archived successfully", visit });
   } catch (error) {
-
     next(error);
-
   }
-
 };
