@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import Medicine from "../models/medicine.model";
+import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 
 
@@ -62,7 +62,7 @@ export const getMedicines = async (
     });
 
 
-    const medicinesWithFlag = medicines.map((med) => {
+    const medicinesWithFlag = medicines.map((med: IMedicine) => {
 
       return {
         ...med.toObject(),
@@ -169,7 +169,7 @@ export const getLowStockMedicines = async (
     const medicines = await Medicine.find();
 
     const lowStock = medicines.filter(
-      (med) => med.quantity <= med.lowStockThreshold
+      (med: IMedicine) => med.quantity <= med.lowStockThreshold
     );
 
 

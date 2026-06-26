@@ -20,6 +20,8 @@ export interface IPatient extends Document {
 
   address: string;
 
+  isActive: boolean;
+
 }
 
 const PatientSchema = new Schema<IPatient>(
@@ -70,6 +72,11 @@ const PatientSchema = new Schema<IPatient>(
     address: {
       type: String,
       required: true,
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
     },
 
   },

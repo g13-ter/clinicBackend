@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { ZodSchema } from "zod";
+import { ZodSchema, ZodIssue } from "zod";
 
 
 // reusable middleware - pass in any zod schema and it will
@@ -13,7 +13,7 @@ export const validateBody = (schema: ZodSchema) => {
     if (!result.success) {
 
       // zod gives us a detailed list of what went wrong
-      const errors = result.error.issues.map((issue) => ({
+      const errors = result.error.issues.map((issue: ZodIssue) => ({
         field: issue.path.join("."),
         message: issue.message
       }));
