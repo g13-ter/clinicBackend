@@ -1,5 +1,7 @@
 import express, { Application, Request, Response } from "express";
 import cors from "cors";
+import swaggerUi from "swagger-ui-express";
+import swaggerSpec from "./config/swagger";
 import userRoutes from "./routes/user.routes";
 import patientRoutes from "./routes/patient.routes";
 import authRoutes from "./routes/auth.routes";
@@ -26,6 +28,9 @@ app.use(express.json());
 
 // applies to every route below this line
 app.use(generalLimiter);
+
+// interactive API documentation - visit /api-docs once the server is running
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use("/api/users", userRoutes);
 
