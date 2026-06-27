@@ -7,6 +7,7 @@ export interface IAppointment extends Document {
   status: string;
   notes: string;
   createdBy: mongoose.Types.ObjectId;
+  updatedBy?: mongoose.Types.ObjectId;
 }
 
 const AppointmentSchema = new Schema<IAppointment>(
@@ -41,6 +42,11 @@ const AppointmentSchema = new Schema<IAppointment>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
     },
   },
   {

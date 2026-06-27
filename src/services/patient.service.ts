@@ -1,14 +1,37 @@
 import Patient, { IPatient } from "../models/patient.model";
 import { AppError } from "../middleware/error.middleware";
+import { PaginationParams } from "../utils/pagination";
 
 export class PatientService {
   async createPatient(data: Partial<IPatient>): Promise<IPatient> {
     return await Patient.create(data);
   }
 
-  async getPatients(includeInactive: boolean): Promise<IPatient[]> {
-    const filter = includeInactive ? {} : { isActive: true };
-    return await Patient.find(filter);
+  async getPatients(
+    includeInactive: boolean,
+    { limit, skip }: PaginationParams,
+    search?: string
+  ): Promise<{ patients: IPatient[]; total: number }> {
+    const filter: any = includeInactive ? {} : { isActive: true };
+
+    if (search) {
+      filter.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { studentId: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const [patients, total] = await Promise.all([
+      Patient.find(filter)
+        .populate("createdBy", "name role")
+        .populate("updatedBy", "name role")
+        .skip(skip)
+        .limit(limit),
+      Patient.countDocuments(filter),
+    ]);
+
+    return { patients, total };
   }
 
   async getPatientsBasic(): Promise<IPatient[]> {
@@ -18,7 +41,10 @@ export class PatientService {
   }
 
   async getPatientById(id: string): Promise<IPatient> {
-    const patient = await Patient.findById(id);
+    const patient = await Patient.findById(id)
+      .populate("createdBy", "name role")
+      .populate("updatedBy", "name role");
+
     if (!patient) {
       throw new AppError("Patient not found", 404);
     }
@@ -38,10 +64,10 @@ export class PatientService {
     return patient;
   }
 
-  async archivePatient(id: string): Promise<IPatient> {
+  async archivePatient(id: string, updatedBy: string): Promise<IPatient> {
     const patient = await Patient.findByIdAndUpdate(
       id,
-      { isActive: false },
+      { isActive: false, updatedBy },
       { new: true }
     );
 

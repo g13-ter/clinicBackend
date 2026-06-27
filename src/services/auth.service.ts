@@ -17,18 +17,16 @@ export class AuthService {
       throw new AppError("Invalid password", 400);
     }
 
-
-// inside your AuthService or controller
-const token = jwt.sign(
-  {
-    id: user._id,
-    role: user.role,
-  },
-  process.env.JWT_SECRET as string,
-  {
-    expiresIn: process.env.JWT_EXPIRE || "1d", // must be string or number
-  } as SignOptions
-);
+    const token = jwt.sign(
+      {
+        id: user._id,
+        role: user.role,
+      },
+      process.env.JWT_SECRET as string,
+      {
+        expiresIn: process.env.JWT_EXPIRE || "1d", // must be string or number
+      } as SignOptions
+    );
 
     return token;
   }

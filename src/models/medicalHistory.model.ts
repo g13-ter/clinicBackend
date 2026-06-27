@@ -7,6 +7,7 @@ export interface IMedicalHistory extends Document {
   familyHistory: string;
   allergies: string;
   recordedBy: mongoose.Types.ObjectId;
+  updatedBy?: mongoose.Types.ObjectId;
   dateRecorded: Date;
 }
 
@@ -38,6 +39,11 @@ const MedicalHistorySchema = new Schema<IMedicalHistory>(
       type: Schema.Types.ObjectId,
       ref: "User",
       required: true,
+    },
+
+    updatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
     },
 
     dateRecorded: {

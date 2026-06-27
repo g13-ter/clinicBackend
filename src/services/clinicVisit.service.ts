@@ -1,23 +1,46 @@
 import ClinicVisit, { IClinicVisit } from "../models/clinicVisit.model";
 import { AppError } from "../middleware/error.middleware";
+import { PaginationParams } from "../utils/pagination";
 
 export class ClinicVisitService {
   async createVisit(data: Partial<IClinicVisit>): Promise<IClinicVisit> {
     return await ClinicVisit.create(data);
   }
 
-  async getVisitsByPatient(patientId: string): Promise<IClinicVisit[]> {
+  async getVisitsByPatient(
+    patientId: string,
+    { limit, skip }: PaginationParams,
+    search?: string
+  ): Promise<{ visits: IClinicVisit[]; total: number }> {
     if (!patientId) {
       throw new AppError("Patient ID is required", 400);
     }
 
-    return await ClinicVisit.find({ patientId, isActive: true })
-      .populate("patientId")
-      .sort({ visitDate: -1 });
+    const filter: any = { patientId, isActive: true };
+
+    if (search) {
+      filter.complaint = { $regex: search, $options: "i" };
+    }
+
+    const [visits, total] = await Promise.all([
+      ClinicVisit.find(filter)
+        .populate("patientId")
+        .populate("recordedBy", "name role")
+        .populate("updatedBy", "name role")
+        .sort({ visitDate: -1 })
+        .skip(skip)
+        .limit(limit),
+      ClinicVisit.countDocuments(filter),
+    ]);
+
+    return { visits, total };
   }
 
   async getVisitById(id: string): Promise<IClinicVisit> {
-    const visit = await ClinicVisit.findById(id).populate("patientId");
+    const visit = await ClinicVisit.findById(id)
+      .populate("patientId")
+      .populate("recordedBy", "name role")
+      .populate("updatedBy", "name role");
 
     if (!visit) {
       throw new AppError("Clinic visit not found", 404);
@@ -39,10 +62,10 @@ export class ClinicVisitService {
     return visit;
   }
 
-  async archiveVisit(id: string): Promise<IClinicVisit> {
+  async archiveVisit(id: string, updatedBy: string): Promise<IClinicVisit> {
     const visit = await ClinicVisit.findByIdAndUpdate(
       id,
-      { isActive: false },
+      { isActive: false, updatedBy },
       { new: true }
     );
 

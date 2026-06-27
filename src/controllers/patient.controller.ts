@@ -1,13 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import { PatientService } from "../services/patient.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 
 const patientService = new PatientService();
 
 // CREATE
 export const createPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const patient = await patientService.createPatient(req.body);
-    res.status(201).json(patient);
+    const createdBy = (req as any).user.id;
+    const patient = await patientService.createPatient({ ...req.body, createdBy });
+    res.status(201).json({ success: true, message: "Patient created successfully", data: patient });
   } catch (error) {
     next(error);
   }
@@ -17,8 +19,17 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
 export const getPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const includeInactive = req.query.includeInactive === "true";
-    const patients = await patientService.getPatients(includeInactive);
-    res.status(200).json(patients);
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+
+    const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
+
+    res.status(200).json({
+      success: true,
+      message: "Patients retrieved successfully",
+      data: patients,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
   } catch (error) {
     next(error);
   }
@@ -28,7 +39,7 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 export const getPatientsBasic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const patients = await patientService.getPatientsBasic();
-    res.status(200).json(patients);
+    res.status(200).json({ success: true, message: "Patients retrieved successfully", data: patients });
   } catch (error) {
     next(error);
   }
@@ -37,9 +48,9 @@ export const getPatientsBasic = async (req: Request, res: Response, next: NextFu
 // GET BY ID
 export const getPatientById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
+    const id = req.params.id as string;
     const patient = await patientService.getPatientById(id);
-    res.status(200).json(patient);
+    res.status(200).json({ success: true, message: "Patient retrieved successfully", data: patient });
   } catch (error) {
     next(error);
   }
@@ -48,9 +59,10 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
 // UPDATE
 export const updatePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const patient = await patientService.updatePatient(id, req.body);
-    res.status(200).json(patient);
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const patient = await patientService.updatePatient(id, { ...req.body, updatedBy });
+    res.status(200).json({ success: true, message: "Patient updated successfully", data: patient });
   } catch (error) {
     next(error);
   }
@@ -59,9 +71,10 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
 // ARCHIVE (soft delete)
 export const archivePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const patient = await patientService.archivePatient(id);
-    res.status(200).json({ message: "Patient archived successfully", patient });
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const patient = await patientService.archivePatient(id, updatedBy);
+    res.status(200).json({ success: true, message: "Patient archived successfully", data: patient });
   } catch (error) {
     next(error);
   }

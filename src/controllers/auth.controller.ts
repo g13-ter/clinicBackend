@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AuthService } from "../services/auth.service";
+import { AppError } from "../middleware/error.middleware";
 
 const authService = new AuthService();
 
@@ -9,7 +10,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     const { email, password } = req.body;
 
     if (!email || !password) {
-      throw new Error("Email and password are required");
+      throw new AppError("Email and password are required", 400);
     }
 
     const token = await authService.login(email, password);

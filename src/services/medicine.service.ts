@@ -1,34 +1,52 @@
 import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
+import { PaginationParams } from "../utils/pagination";
 
 export class MedicineService {
   async createMedicine(data: Partial<IMedicine>): Promise<IMedicine> {
     return await Medicine.create(data);
   }
 
-  async getMedicines(): Promise<(IMedicine & { isLowStock: boolean })[]> {
-    const medicines = await Medicine.find().sort({ name: 1 });
+  async getMedicines(
+    { limit, skip }: PaginationParams,
+    search?: string
+  ): Promise<{ medicines: (IMedicine & { isLowStock: boolean })[]; total: number }> {
+    const filter: any = {};
 
-    return medicines.map((med: IMedicine) => ({
-      ...med.toObject(),
-      isLowStock: med.quantity <= med.lowStockThreshold,
-    }));
+    if (search) {
+      filter.name = { $regex: search, $options: "i" };
+    }
+
+    const [medicines, total] = await Promise.all([
+      Medicine.find(filter)
+        .populate("lastUpdatedBy", "name role")
+        .sort({ name: 1 })
+        .skip(skip)
+        .limit(limit),
+      Medicine.countDocuments(filter),
+    ]);
+
+    return {
+      medicines: medicines.map((med: IMedicine) => ({
+        ...med.toObject(),
+        isLowStock: med.quantity <= med.lowStockThreshold,
+      })),
+      total,
+    };
   }
 
-async getMedicineById(id: string): Promise<any> {
-  const medicine = await Medicine.findById(id);
+  async getMedicineById(id: string): Promise<any> {
+    const medicine = await Medicine.findById(id).populate("lastUpdatedBy", "name role");
 
-  if (!medicine) {
-    throw new AppError("Medicine not found", 404);
+    if (!medicine) {
+      throw new AppError("Medicine not found", 404);
+    }
+
+    return {
+      ...medicine.toObject(),
+      isLowStock: medicine.quantity <= medicine.lowStockThreshold,
+    };
   }
-
-  return {
-    ...medicine.toObject(),
-    isLowStock: medicine.quantity <= medicine.lowStockThreshold,
-  };
-}
-
-
 
   async updateMedicine(id: string, data: Partial<IMedicine>): Promise<IMedicine> {
     const medicine = await Medicine.findByIdAndUpdate(id, data, {

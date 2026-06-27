@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { MedicalHistoryService } from "../services/medicalHistory.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 
 const medicalHistoryService = new MedicalHistoryService();
 
@@ -18,7 +19,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       recordedBy,
     });
 
-    res.status(201).json({ message: "Medical history entry created successfully", entry });
+    res.status(201).json({ success: true, message: "Medical history entry created successfully", data: entry });
   } catch (error) {
     next(error);
   }
@@ -27,9 +28,17 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
 // GET ALL BY PATIENT
 export const getHistoryByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const patientId = req.params.patientId as string; // ✅ cast to string
-    const history = await medicalHistoryService.getHistoryByPatient(patientId);
-    res.status(200).json(history);
+    const patientId = req.params.patientId as string;
+    const pagination = getPaginationParams(req.query);
+
+    const { history, total } = await medicalHistoryService.getHistoryByPatient(patientId, pagination);
+
+    res.status(200).json({
+      success: true,
+      message: "Medical history retrieved successfully",
+      data: history,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
   } catch (error) {
     next(error);
   }
@@ -38,9 +47,9 @@ export const getHistoryByPatient = async (req: Request, res: Response, next: Nex
 // GET BY ID
 export const getHistoryById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
+    const id = req.params.id as string;
     const entry = await medicalHistoryService.getHistoryById(id);
-    res.status(200).json(entry);
+    res.status(200).json({ success: true, message: "Medical history entry retrieved successfully", data: entry });
   } catch (error) {
     next(error);
   }
@@ -49,9 +58,10 @@ export const getHistoryById = async (req: Request, res: Response, next: NextFunc
 // UPDATE
 export const updateMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const entry = await medicalHistoryService.updateMedicalHistory(id, req.body);
-    res.status(200).json({ message: "Medical history entry updated successfully", entry });
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const entry = await medicalHistoryService.updateMedicalHistory(id, { ...req.body, updatedBy });
+    res.status(200).json({ success: true, message: "Medical history entry updated successfully", data: entry });
   } catch (error) {
     next(error);
   }

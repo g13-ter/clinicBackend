@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ClinicVisitService } from "../services/clinicVisit.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 
 const clinicVisitService = new ClinicVisitService();
 
@@ -20,7 +21,7 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
       recordedBy,
     });
 
-    res.status(201).json({ message: "Clinic visit created successfully", visit });
+    res.status(201).json({ success: true, message: "Clinic visit created successfully", data: visit });
   } catch (error) {
     next(error);
   }
@@ -29,9 +30,18 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
 // GET ALL BY PATIENT
 export const getVisitsByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const patientId = req.params.patientId as string; // ✅ cast to string
-    const visits = await clinicVisitService.getVisitsByPatient(patientId);
-    res.status(200).json(visits);
+    const patientId = req.params.patientId as string;
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+
+    const { visits, total } = await clinicVisitService.getVisitsByPatient(patientId, pagination, search);
+
+    res.status(200).json({
+      success: true,
+      message: "Clinic visits retrieved successfully",
+      data: visits,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
   } catch (error) {
     next(error);
   }
@@ -40,9 +50,9 @@ export const getVisitsByPatient = async (req: Request, res: Response, next: Next
 // GET BY ID
 export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
+    const id = req.params.id as string;
     const visit = await clinicVisitService.getVisitById(id);
-    res.status(200).json(visit);
+    res.status(200).json({ success: true, message: "Clinic visit retrieved successfully", data: visit });
   } catch (error) {
     next(error);
   }
@@ -51,9 +61,10 @@ export const getVisitById = async (req: Request, res: Response, next: NextFuncti
 // UPDATE
 export const updateVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const visit = await clinicVisitService.updateVisit(id, req.body);
-    res.status(200).json({ message: "Clinic visit updated successfully", visit });
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const visit = await clinicVisitService.updateVisit(id, { ...req.body, updatedBy });
+    res.status(200).json({ success: true, message: "Clinic visit updated successfully", data: visit });
   } catch (error) {
     next(error);
   }
@@ -62,9 +73,10 @@ export const updateVisit = async (req: Request, res: Response, next: NextFunctio
 // ARCHIVE (soft delete)
 export const archiveVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const visit = await clinicVisitService.archiveVisit(id);
-    res.status(200).json({ message: "Clinic visit archived successfully", visit });
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const visit = await clinicVisitService.archiveVisit(id, updatedBy);
+    res.status(200).json({ success: true, message: "Clinic visit archived successfully", data: visit });
   } catch (error) {
     next(error);
   }

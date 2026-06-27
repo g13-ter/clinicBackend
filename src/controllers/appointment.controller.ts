@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppointmentService } from "../services/appointment.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 
 const appointmentService = new AppointmentService();
 
@@ -17,7 +18,7 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       createdBy,
     });
 
-    res.status(201).json({ message: "Appointment created successfully", appointment });
+    res.status(201).json({ success: true, message: "Appointment created successfully", data: appointment });
   } catch (error) {
     next(error);
   }
@@ -26,8 +27,17 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 // GET ALL
 export const getAppointments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const appointments = await appointmentService.getAppointments();
-    res.status(200).json(appointments);
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+
+    const { appointments, total } = await appointmentService.getAppointments(pagination, search);
+
+    res.status(200).json({
+      success: true,
+      message: "Appointments retrieved successfully",
+      data: appointments,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
   } catch (error) {
     next(error);
   }
@@ -36,9 +46,9 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
 // GET BY ID
 export const getAppointmentById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
+    const id = req.params.id as string;
     const appointment = await appointmentService.getAppointmentById(id);
-    res.status(200).json(appointment);
+    res.status(200).json({ success: true, message: "Appointment retrieved successfully", data: appointment });
   } catch (error) {
     next(error);
   }
@@ -47,9 +57,10 @@ export const getAppointmentById = async (req: Request, res: Response, next: Next
 // UPDATE
 export const updateAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const id = req.params.id as string; // ✅ cast to string
-    const appointment = await appointmentService.updateAppointment(id, req.body);
-    res.status(200).json({ message: "Appointment updated successfully", appointment });
+    const id = req.params.id as string;
+    const updatedBy = (req as any).user.id;
+    const appointment = await appointmentService.updateAppointment(id, { ...req.body, updatedBy });
+    res.status(200).json({ success: true, message: "Appointment updated successfully", data: appointment });
   } catch (error) {
     next(error);
   }
