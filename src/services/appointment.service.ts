@@ -1,6 +1,7 @@
 import Appointment, { IAppointment } from "../models/appointment.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { escapeRegex } from "../utils/regex";
 
 export class AppointmentService {
   async createAppointment(data: Partial<IAppointment>): Promise<IAppointment> {
@@ -14,7 +15,7 @@ export class AppointmentService {
     const filter: any = {};
 
     if (search) {
-      filter.reason = { $regex: search, $options: "i" };
+      filter.reason = { $regex: escapeRegex(search), $options: "i" };
     }
 
     const [appointments, total] = await Promise.all([

@@ -4,11 +4,13 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
-    "test": "jest --runInBand",
-    "seed-admin": "ts-node tests/seedAdmin.ts",
-    "debug-default": "ts-node tests/debugDefault.ts"
-  },
+  "dev": "nodemon src/server.ts",
+  "build": "tsc",
+  "start": "node dist/server.js",
+  "test": "jest --runInBand",
+  "seed-admin": "ts-node tests/seedAdmin.ts",
+  "debug-default": "ts-node tests/debugDefault.ts"
+},
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -21,6 +23,7 @@
     "express-rate-limit": "^8.5.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.7.0",
+    "winston": "^3.19.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

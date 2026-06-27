@@ -20,6 +20,7 @@ const ClinicVisitSchema = new Schema<IClinicVisit>(
       type: Schema.Types.ObjectId,
       ref: "Patient",
       required: true,
+      index: true,
     },
 
     complaint: {

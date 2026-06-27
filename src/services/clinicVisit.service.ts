@@ -1,6 +1,7 @@
 import ClinicVisit, { IClinicVisit } from "../models/clinicVisit.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { escapeRegex } from "../utils/regex";
 
 export class ClinicVisitService {
   async createVisit(data: Partial<IClinicVisit>): Promise<IClinicVisit> {
@@ -19,7 +20,7 @@ export class ClinicVisitService {
     const filter: any = { patientId, isActive: true };
 
     if (search) {
-      filter.complaint = { $regex: search, $options: "i" };
+      filter.complaint = { $regex: escapeRegex(search), $options: "i" };
     }
 
     const [visits, total] = await Promise.all([

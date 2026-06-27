@@ -16,6 +16,7 @@ const AppointmentSchema = new Schema<IAppointment>(
       type: Schema.Types.ObjectId,
       ref: "Patient",
       required: true,
+      index: true,
     },
 
     appointmentDate: {

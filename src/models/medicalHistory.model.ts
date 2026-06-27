@@ -13,10 +13,11 @@ export interface IMedicalHistory extends Document {
 
 const MedicalHistorySchema = new Schema<IMedicalHistory>(
   {
-    patientId: {
+   patientId: {
       type: Schema.Types.ObjectId,
       ref: "Patient",
       required: true,
+      index: true,
     },
 
     diagnosis: {

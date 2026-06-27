@@ -1,6 +1,7 @@
 import Patient, { IPatient } from "../models/patient.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { escapeRegex } from "../utils/regex";
 
 export class PatientService {
   async createPatient(data: Partial<IPatient>): Promise<IPatient> {
@@ -14,14 +15,15 @@ export class PatientService {
   ): Promise<{ patients: IPatient[]; total: number }> {
     const filter: any = includeInactive ? {} : { isActive: true };
 
-    if (search) {
+      if (search) {
+      const safeSearch = escapeRegex(search);
       filter.$or = [
-        { firstName: { $regex: search, $options: "i" } },
-        { lastName: { $regex: search, $options: "i" } },
-        { studentId: { $regex: search, $options: "i" } },
+        { firstName: { $regex: safeSearch, $options: "i" } },
+        { lastName: { $regex: safeSearch, $options: "i" } },
+        { studentId: { $regex: safeSearch, $options: "i" } },
       ];
     }
-
+    
     const [patients, total] = await Promise.all([
       Patient.find(filter)
         .populate("createdBy", "name role")

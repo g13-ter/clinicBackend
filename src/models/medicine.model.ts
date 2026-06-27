@@ -14,6 +14,7 @@ const MedicineSchema = new Schema<IMedicine>(
     name: {
       type: String,
       required: true,
+      index: true,
     },
 
     quantity: {
