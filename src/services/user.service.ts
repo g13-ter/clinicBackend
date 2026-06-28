@@ -37,29 +37,36 @@ export class UserService {
     return user;
   }
 
-  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: string }>): Promise<IUser> {
+  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: string }>): Promise<{ before: IUser; after: IUser }> {
+    const before = await User.findById(id).select("-password");
+
+    if (!before) {
+      throw new AppError("User not found", 404);
+    }
+
     const updateData: any = { ...data };
 
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10);
     }
 
-    const user = await User.findByIdAndUpdate(id, updateData, {
+    const after = await User.findByIdAndUpdate(id, updateData, {
       new: true,
       runValidators: true,
     }).select("-password");
 
-    if (!user) {
+    if (!after) {
       throw new AppError("User not found", 404);
     }
 
-    return user;
+    return { before, after };
   }
 
-  async deleteUser(id: string): Promise<void> {
-    const user = await User.findByIdAndDelete(id);
+  async deleteUser(id: string): Promise<IUser> {
+    const user = await User.findByIdAndDelete(id).select("-password");
     if (!user) {
       throw new AppError("User not found", 404);
     }
+    return user;
   }
 }

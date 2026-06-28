@@ -62,6 +62,25 @@ const idParam = z.object({
   id: z.string().meta({ description: "MongoDB ObjectId", example: "60f7c2b5e1d3c70015a1b2c3" }),
 });
 
+// shape of a single audit log entry, for documentation purposes only -
+// this isn't request-validated since GET /audit-logs has no body
+const auditLogEntry = z.object({
+  _id: z.string(),
+  action: z.enum(["create", "update", "delete", "view"]),
+  resource: z.string().meta({ example: "Patient" }),
+  resourceId: z.string(),
+  performedBy: z.union([z.string(), z.object({ _id: z.string(), name: z.string(), role: z.string(), email: z.string() })]),
+  changes: z.object({
+    before: z.record(z.string(), z.unknown()).optional(),
+    after: z.record(z.string(), z.unknown()).optional(),
+  }).optional(),
+  metadata: z.object({
+    method: z.string().optional(),
+    path: z.string().optional(),
+  }).optional(),
+  createdAt: z.string(),
+});
+
 // shared response set used by nearly every endpoint, keyed by status code
 const standardResponses = (successSchema: z.ZodType) => ({
   200: {
@@ -329,6 +348,26 @@ const paths: ZodOpenApiPathsObject = {
       requestParams: { path: idParam },
       requestBody: { content: { "application/json": { schema: updateMedicineSchema } } },
       responses: standardResponses(successResponse()),
+    },
+  },
+
+  // ----- AUDIT LOGS (admin only) -----
+  "/audit-logs": {
+    get: {
+      tags: ["Audit Logs"],
+      summary: "Get the full audit trail of create/update/delete/view actions across all resources (admin only)",
+      security: bearerAuth,
+      requestParams: {
+        query: z.object({
+          page: z.coerce.number().optional(),
+          limit: z.coerce.number().optional(),
+          resource: z.string().optional().meta({ description: "Filter by resource type, e.g. Patient, ClinicVisit, Medicine" }),
+          resourceId: z.string().optional().meta({ description: "Filter to a single record's history" }),
+          action: z.enum(["create", "update", "delete", "view"]).optional(),
+          performedBy: z.string().optional().meta({ description: "Filter to a single user's activity (user ID)" }),
+        }),
+      },
+      responses: standardResponses(paginatedResponse(auditLogEntry)),
     },
   },
 

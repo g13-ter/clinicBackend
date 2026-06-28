@@ -15,7 +15,7 @@ export class PatientService {
   ): Promise<{ patients: IPatient[]; total: number }> {
     const filter: any = includeInactive ? {} : { isActive: true };
 
-      if (search) {
+    if (search) {
       const safeSearch = escapeRegex(search);
       filter.$or = [
         { firstName: { $regex: safeSearch, $options: "i" } },
@@ -23,7 +23,7 @@ export class PatientService {
         { studentId: { $regex: safeSearch, $options: "i" } },
       ];
     }
-    
+
     const [patients, total] = await Promise.all([
       Patient.find(filter)
         .populate("createdBy", "name role")
@@ -53,30 +53,42 @@ export class PatientService {
     return patient;
   }
 
-  async updatePatient(id: string, data: Partial<IPatient>): Promise<IPatient> {
-    const patient = await Patient.findByIdAndUpdate(id, data, {
+  async updatePatient(id: string, data: Partial<IPatient>): Promise<{ before: IPatient; after: IPatient }> {
+    const before = await Patient.findById(id);
+
+    if (!before) {
+      throw new AppError("Patient not found", 404);
+    }
+
+    const after = await Patient.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     });
 
-    if (!patient) {
+    if (!after) {
       throw new AppError("Patient not found", 404);
     }
 
-    return patient;
+    return { before, after };
   }
 
-  async archivePatient(id: string, updatedBy: string): Promise<IPatient> {
-    const patient = await Patient.findByIdAndUpdate(
+  async archivePatient(id: string, updatedBy: string): Promise<{ before: IPatient; after: IPatient }> {
+    const before = await Patient.findById(id);
+
+    if (!before) {
+      throw new AppError("Patient not found", 404);
+    }
+
+    const after = await Patient.findByIdAndUpdate(
       id,
       { isActive: false, updatedBy },
       { new: true }
     );
 
-    if (!patient) {
+    if (!after) {
       throw new AppError("Patient not found", 404);
     }
 
-    return patient;
+    return { before, after };
   }
 }

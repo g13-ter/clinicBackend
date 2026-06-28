@@ -50,30 +50,42 @@ export class ClinicVisitService {
     return visit;
   }
 
-  async updateVisit(id: string, data: Partial<IClinicVisit>): Promise<IClinicVisit> {
-    const visit = await ClinicVisit.findByIdAndUpdate(id, data, {
+  async updateVisit(id: string, data: Partial<IClinicVisit>): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
+    const before = await ClinicVisit.findById(id);
+
+    if (!before) {
+      throw new AppError("Clinic visit not found", 404);
+    }
+
+    const after = await ClinicVisit.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     });
 
-    if (!visit) {
+    if (!after) {
       throw new AppError("Clinic visit not found", 404);
     }
 
-    return visit;
+    return { before, after };
   }
 
-  async archiveVisit(id: string, updatedBy: string): Promise<IClinicVisit> {
-    const visit = await ClinicVisit.findByIdAndUpdate(
+  async archiveVisit(id: string, updatedBy: string): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
+    const before = await ClinicVisit.findById(id);
+
+    if (!before) {
+      throw new AppError("Clinic visit not found", 404);
+    }
+
+    const after = await ClinicVisit.findByIdAndUpdate(
       id,
       { isActive: false, updatedBy },
       { new: true }
     );
 
-    if (!visit) {
+    if (!after) {
       throw new AppError("Clinic visit not found", 404);
     }
 
-    return visit;
+    return { before, after };
   }
 }

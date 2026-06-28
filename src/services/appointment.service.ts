@@ -45,16 +45,22 @@ export class AppointmentService {
     return appointment;
   }
 
-  async updateAppointment(id: string, data: Partial<IAppointment>): Promise<IAppointment> {
-    const appointment = await Appointment.findByIdAndUpdate(id, data, {
+  async updateAppointment(id: string, data: Partial<IAppointment>): Promise<{ before: IAppointment; after: IAppointment }> {
+    const before = await Appointment.findById(id);
+
+    if (!before) {
+      throw new AppError("Appointment not found", 404);
+    }
+
+    const after = await Appointment.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     });
 
-    if (!appointment) {
+    if (!after) {
       throw new AppError("Appointment not found", 404);
     }
 
-    return appointment;
+    return { before, after };
   }
 }

@@ -11,7 +11,8 @@ import appointmentRoutes from "./routes/appointment.routes";
 import medicineRoutes from "./routes/medicine.routes";
 import { generalLimiter } from "./middleware/rateLimit.middleware";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
-
+import auditLogRoutes from "./routes/auditLog.routes";
+import reportRoutes from "./routes/report.routes";
 
 // This file ONLY builds the Express app - it does NOT start a
 // real network server (no app.listen here). That's what makes it
@@ -45,6 +46,10 @@ app.use("/api/medical-history", medicalHistoryRoutes);
 app.use("/api/appointments", appointmentRoutes);
 
 app.use("/api/medicines", medicineRoutes);
+
+app.use("/api/audit-logs", auditLogRoutes);
+
+app.use("/api/reports", reportRoutes);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("School clinic API Running");

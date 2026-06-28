@@ -1,6 +1,7 @@
 import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { escapeRegex } from "../utils/regex";
 
 export class MedicineService {
   async createMedicine(data: Partial<IMedicine>): Promise<IMedicine> {
@@ -14,7 +15,7 @@ export class MedicineService {
     const filter: any = {};
 
     if (search) {
-      filter.name = { $regex: search, $options: "i" };
+      filter.name = { $regex: escapeRegex(search), $options: "i" };
     }
 
     const [medicines, total] = await Promise.all([
@@ -48,17 +49,23 @@ export class MedicineService {
     };
   }
 
-  async updateMedicine(id: string, data: Partial<IMedicine>): Promise<IMedicine> {
-    const medicine = await Medicine.findByIdAndUpdate(id, data, {
+  async updateMedicine(id: string, data: Partial<IMedicine>): Promise<{ before: IMedicine; after: IMedicine }> {
+    const before = await Medicine.findById(id);
+
+    if (!before) {
+      throw new AppError("Medicine not found", 404);
+    }
+
+    const after = await Medicine.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     });
 
-    if (!medicine) {
+    if (!after) {
       throw new AppError("Medicine not found", 404);
     }
 
-    return medicine;
+    return { before, after };
   }
 
   async getLowStockMedicines(): Promise<IMedicine[]> {

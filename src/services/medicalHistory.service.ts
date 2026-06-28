@@ -44,16 +44,22 @@ export class MedicalHistoryService {
     return entry;
   }
 
-  async updateMedicalHistory(id: string, data: Partial<IMedicalHistory>): Promise<IMedicalHistory> {
-    const entry = await MedicalHistory.findByIdAndUpdate(id, data, {
+  async updateMedicalHistory(id: string, data: Partial<IMedicalHistory>): Promise<{ before: IMedicalHistory; after: IMedicalHistory }> {
+    const before = await MedicalHistory.findById(id);
+
+    if (!before) {
+      throw new AppError("Medical history entry not found", 404);
+    }
+
+    const after = await MedicalHistory.findByIdAndUpdate(id, data, {
       new: true,
       runValidators: true,
     });
 
-    if (!entry) {
+    if (!after) {
       throw new AppError("Medical history entry not found", 404);
     }
 
-    return entry;
+    return { before, after };
   }
 }
