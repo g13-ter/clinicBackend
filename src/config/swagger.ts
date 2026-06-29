@@ -371,6 +371,43 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
+  // ----- REPORTS (admin only) -----
+  "/reports/clinic-summary": {
+    get: {
+      tags: ["Reports"],
+      summary: "Generate and download a Word document summarizing clinic activity for a date range (admin only)",
+      description:
+        "Defaults to the current calendar month if no dates are given. " +
+        "Generated entirely from this system's own data - no external AI " +
+        "service is called, so the response is near-instant.",
+      security: bearerAuth,
+      requestParams: {
+        query: z.object({
+          startDate: z.iso.date().optional().meta({ description: "ISO date, e.g. 2026-06-01. Required if endDate is given." }),
+          endDate: z.iso.date().optional().meta({ description: "ISO date, e.g. 2026-06-30. Required if startDate is given." }),
+        }),
+      },
+      responses: {
+        200: {
+          description: "Word document (.docx) file download",
+          content: {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+              schema: { type: "string", format: "binary" },
+            },
+          },
+        },
+        400: {
+          description: "Invalid or incomplete date range",
+          content: { "application/json": { schema: errorResponse } },
+        },
+        403: {
+          description: "Forbidden - not admin",
+          content: { "application/json": { schema: errorResponse } },
+        },
+      },
+    },
+  },
+  
 };
 
 // Explicit type annotation here, not stylistic: createDocument's return

@@ -1,28 +1,54 @@
 import Patient from "../models/patient.model";
 import ClinicVisit from "../models/clinicVisit.model";
-import MedicalHistory from "../models/medicalHistory.model";
-import Appointment from "../models/appointment.model";
 import Medicine from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
+
+export interface GenderBreakdown {
+  male: number;
+  female: number;
+  total: number;
+}
+
+export interface ComplaintCount {
+  complaint: string;
+  count: number;
+}
+
+export interface MedicineStockRow {
+  name: string;
+  remainingStock: number;
+  unit: string;
+  isLowStock: boolean;
+}
 
 export interface ReportStats {
   periodStart: Date;
   periodEnd: Date;
 
-  newPatients: number;
+  // Section II - Clinic Attendance
+  // "Students" reflects every clinic visit in the period, broken down by
+  // the visiting patient's gender. Teaching/Non-Teaching Staff are not
+  // tracked at all - this system only manages student patient records,
+  // so those rows are honestly reported as not applicable rather than
+  // guessed at.
+  studentAttendance: GenderBreakdown;
 
-  totalVisits: number;
-  topComplaints: { complaint: string; count: number }[];
+  // Section III - Common Reasons for Clinic Visits
+  // Every distinct complaint recorded, sorted by frequency. The original
+  // template lists fixed categories (Headache, Fever, etc.) but this
+  // system records free-text complaints, so we report what was actually
+  // logged instead of forcing it into a fixed list that might not match.
+  complaintCounts: ComplaintCount[];
 
-  newMedicalHistoryEntries: number;
+  // Section IV - Medicines and Supplies
+  // This system tracks CURRENT stock, not a historical dispensing log,
+  // so "quantity used" during the period cannot be computed accurately.
+  // We report current remaining stock honestly instead of fabricating
+  // a usage figure.
+  medicineStock: MedicineStockRow[];
 
-  appointments: {
-    total: number;
-    byStatus: Record<string, number>;
-  };
-
-  lowStockMedicines: { name: string; quantity: number; unit: string }[];
-  newMedicinesAdded: number;
+  // Section VIII - Issues and Concerns
+  lowStockMedicines: MedicineStockRow[];
 }
 
 export class ReportService {
@@ -31,71 +57,64 @@ export class ReportService {
       throw new AppError("startDate must be before endDate", 400);
     }
 
-    const dateFilter = { createdAt: { $gte: startDate, $lte: endDate } };
+    const visitDateFilter = { visitDate: { $gte: startDate, $lte: endDate }, isActive: true };
 
-    const [
-      newPatients,
-      totalVisits,
-      topComplaintsAgg,
-      newMedicalHistoryEntries,
-      appointmentsInPeriod,
-      lowStockMedicines,
-      newMedicinesAdded,
-    ] = await Promise.all([
-      Patient.countDocuments(dateFilter),
+    const [visitsInPeriod, allMedicines] = await Promise.all([
+      ClinicVisit.find(visitDateFilter)
+        .populate("patientId", "gender")
+        .select("complaint patientId"),
 
-      ClinicVisit.countDocuments(dateFilter),
-
-      ClinicVisit.aggregate([
-        { $match: dateFilter },
-        { $group: { _id: "$complaint", count: { $sum: 1 } } },
-        { $sort: { count: -1 } },
-        { $limit: 5 },
-      ]),
-
-      MedicalHistory.countDocuments(dateFilter),
-
-      Appointment.find(dateFilter).select("status"),
-
-      // low stock is a CURRENT snapshot, not period-filtered -
-      // the board wants to know what's low right now, not what was low
-      // at some point during the period
       Medicine.find().select("name quantity unit lowStockThreshold"),
-
-      Medicine.countDocuments(dateFilter),
     ]);
 
-    const topComplaints = topComplaintsAgg.map((item: any) => ({
-      complaint: item._id || "Unspecified",
-      count: item.count,
-    }));
+    // ----- Student attendance by gender -----
+    let male = 0;
+    let female = 0;
 
-    const byStatus: Record<string, number> = {};
-    for (const appt of appointmentsInPeriod) {
-      byStatus[appt.status] = (byStatus[appt.status] || 0) + 1;
+    for (const visit of visitsInPeriod) {
+      const patient = visit.patientId as any;
+      if (patient?.gender === "Male") male++;
+      else if (patient?.gender === "Female") female++;
+      // a visit whose patient record was deleted/unlinked is still
+      // counted in the total below, just not in the gender split
     }
 
-    const lowStock = lowStockMedicines
-      .filter((med: any) => med.quantity <= med.lowStockThreshold)
-      .map((med: any) => ({
-        name: med.name,
-        quantity: med.quantity,
-        unit: med.unit,
-      }));
+    const studentAttendance: GenderBreakdown = {
+      male,
+      female,
+      total: visitsInPeriod.length,
+    };
+
+    // ----- Common complaints -----
+    const complaintMap = new Map<string, number>();
+    for (const visit of visitsInPeriod) {
+      const key = visit.complaint?.trim() || "Unspecified";
+      complaintMap.set(key, (complaintMap.get(key) || 0) + 1);
+    }
+
+    const complaintCounts: ComplaintCount[] = Array.from(complaintMap.entries())
+      .map(([complaint, count]) => ({ complaint, count }))
+      .sort((a, b) => b.count - a.count);
+
+    // ----- Medicine stock (current snapshot, not period-filtered - the
+    // report should reflect what's on hand right now, not what was on
+    // hand at some point during the period) -----
+    const medicineStock: MedicineStockRow[] = allMedicines.map((med: any) => ({
+      name: med.name,
+      remainingStock: med.quantity,
+      unit: med.unit,
+      isLowStock: med.quantity <= med.lowStockThreshold,
+    }));
+
+    const lowStockMedicines = medicineStock.filter((med) => med.isLowStock);
 
     return {
       periodStart: startDate,
       periodEnd: endDate,
-      newPatients,
-      totalVisits,
-      topComplaints,
-      newMedicalHistoryEntries,
-      appointments: {
-        total: appointmentsInPeriod.length,
-        byStatus,
-      },
-      lowStockMedicines: lowStock,
-      newMedicinesAdded,
+      studentAttendance,
+      complaintCounts,
+      medicineStock,
+      lowStockMedicines,
     };
   }
 }

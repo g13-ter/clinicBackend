@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import { ReportService } from "../services/report.service";
-import { buildReportNarrative } from "../utils/reportNarrative";
 import { buildReportDocx } from "../utils/reportDocx";
 import { AppError } from "../middleware/error.middleware";
 
@@ -42,8 +41,7 @@ export const getClinicSummaryReport = async (req: Request, res: Response, next: 
     }
 
     const stats = await reportService.getClinicSummary(startDate, endDate);
-    const narrative = buildReportNarrative(stats);
-    const buffer = await buildReportDocx(narrative);
+    const buffer = await buildReportDocx(stats);
 
     const filename = `Clinic_Report_${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}.docx`;
 
