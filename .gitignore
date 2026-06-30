@@ -3,11 +3,8 @@ node_modules/
 
 # Environment files
 .env
-.env.example
 .env.local
 
 # Build outputs
 dist/
 build/
-
-backend/test/
