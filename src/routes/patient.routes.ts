@@ -54,11 +54,11 @@ router.get(
 );
 
 
-// Admin only - update basic patient info (not medical data)
+// Nurse only - update basic patient info (not medical data)
 router.put(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("nurse"),
   validateBody(updatePatientSchema),
   updatePatient
 );

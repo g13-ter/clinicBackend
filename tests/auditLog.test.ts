@@ -177,7 +177,7 @@ describe("Audit Logs - real actions get recorded", () => {
 
     const updateRes = await request(app)
       .put(`/api/patients/${createdPatientId}`)
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .send({ firstName: "AuditUpdated" });
 
     expect(updateRes.status).toBe(200);
