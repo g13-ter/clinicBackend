@@ -25,11 +25,11 @@ router.post(
 );
 
 
-// Staff, Nurse, Doctor - view all appointments
+// Staff, Nurse, Doctor, Admin - view all appointments
 router.get(
   "/",
   protect,
-  allowRoles("staff", "nurse", "doctor"),
+  allowRoles("staff", "nurse", "doctor", "admin"),
   getAppointments
 );
 

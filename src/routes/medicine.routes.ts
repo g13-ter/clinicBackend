@@ -26,11 +26,11 @@ router.post(
 );
 
 
-// Nurse + Doctor - low stock alert list
+// Nurse + Doctor + Admin - low stock alert list
 router.get(
   "/low-stock",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("nurse", "doctor", "admin"),
   getLowStockMedicines
 );
 
