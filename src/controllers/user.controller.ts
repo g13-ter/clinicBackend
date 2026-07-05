@@ -13,7 +13,7 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     const { name, email, password, role } = req.body;
     const user = await userService.createUser({ name, email, password, role });
 
-    // never include password (hashed or not) in the audit log
+    // never include password (hashed or not) in the audit log or the API response
     const { password: _omit, ...safeUser } = user.toObject();
 
     logAudit({
@@ -26,7 +26,7 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
       path: req.originalUrl,
     });
 
-    res.status(201).json({ success: true, message: "User created successfully", data: user });
+    res.status(201).json({ success: true, message: "User created successfully", data: safeUser });
   } catch (error) {
     next(error);
   }

@@ -108,3 +108,14 @@ export const getLowStockMedicines = async (req: Request, res: Response, next: Ne
     next(error);
   }
 };
+
+// GET EXPIRING/EXPIRED
+// Not audit-logged, same reasoning as low stock - an alert/dashboard-style endpoint.
+export const getExpiringMedicines = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const expiring = await medicineService.getExpiringMedicines();
+    res.status(200).json({ success: true, message: "Expiring medicines retrieved successfully", data: expiring });
+  } catch (error) {
+    next(error);
+  }
+};
