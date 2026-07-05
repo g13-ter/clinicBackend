@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from "express";
 import { MedicalHistoryService } from "../services/medicalHistory.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
 const medicalHistoryService = new MedicalHistoryService();
 
 // CREATE
 export const createMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
     const { patientId, diagnosis, prescription, familyHistory, allergies } = req.body;
 
     const entry = await medicalHistoryService.createMedicalHistory({
@@ -17,7 +18,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       prescription,
       familyHistory,
       allergies,
-      recordedBy: userId,
+      recordedBy: getAuthenticatedObjectId(req),
     });
 
     logAudit({
@@ -36,24 +37,13 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
   }
 };
 
-// GET ALL BY PATIENT
+// GET ALL BY PATIENT — read-only, not audit-logged
 export const getHistoryByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const patientId = req.params.patientId as string;
     const pagination = getPaginationParams(req.query);
 
     const { history, total } = await medicalHistoryService.getHistoryByPatient(patientId, pagination);
-
-    logAudit({
-      action: "view",
-      resource: "MedicalHistory",
-      resourceId: `patient:${patientId}`,
-      performedBy: userId,
-      after: { viewedIds: history.map((h: any) => String(h._id)), page: pagination.page },
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({
       success: true,
@@ -66,21 +56,11 @@ export const getHistoryByPatient = async (req: Request, res: Response, next: Nex
   }
 };
 
-// GET BY ID
+// GET BY ID — read-only, not audit-logged
 export const getHistoryById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const id = req.params.id as string;
     const entry = await medicalHistoryService.getHistoryById(id);
-
-    logAudit({
-      action: "view",
-      resource: "MedicalHistory",
-      resourceId: id,
-      performedBy: userId,
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({ success: true, message: "Medical history entry retrieved successfully", data: entry });
   } catch (error) {
@@ -92,8 +72,11 @@ export const getHistoryById = async (req: Request, res: Response, next: NextFunc
 export const updateMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
-    const { before, after } = await medicalHistoryService.updateMedicalHistory(id, { ...req.body, updatedBy: userId });
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await medicalHistoryService.updateMedicalHistory(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
+    });
 
     logAudit({
       action: "update",

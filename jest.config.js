@@ -9,9 +9,7 @@ module.exports = {
   // since they all share the same real database, running them
   // at the same time could cause them to interfere with each other
   maxWorkers: 1,
-  globals: {
-    "ts-jest": {
-      tsconfig: "tsconfig.test.json"
-    }
+  transform: {
+    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.test.json" }]
   }
 };

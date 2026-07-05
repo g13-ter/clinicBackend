@@ -96,6 +96,18 @@ This is a live Swagger UI, generated directly from this project's own Zod valida
 | `npm test` | Runs the full Jest test suite against a real database |
 | `npm run seed-admin` | Creates the first admin account |
 
+See also: [Architecture & security guide](../docs/ARCHITECTURE.md) (RBAC matrix, health checks, deployment, CI).
+
+---
+
+## Health check
+
+```
+GET /api/health
+```
+
+Public endpoint (no auth). Returns `200` when MongoDB is connected, `503` when degraded. Use for load balancers and uptime monitoring.
+
 ---
 
 ## Accounts & Roles
@@ -108,7 +120,7 @@ There are 4 roles:
 |---|---|
 | `admin` | Manages staff accounts. Updates/archives patient basic info. Views audit logs and generates board reports. Cannot touch medical records directly. |
 | `doctor` | Views patients and visits. Owns medical history (diagnosis, prescriptions, family history). |
-| `nurse` | Creates patients and clinic visits. Manages medicine inventory. Read-only on medical history. |
+| `nurse` | Creates patients and clinic visits. Manages medicine inventory and appointments. Read-only on medical history. |
 | `staff` | Manages appointments. Sees a basic (non-medical) patient list only. |
 
 ---
@@ -182,7 +194,9 @@ Every list endpoint (`GET /patients`, `GET /medicines`, etc.) supports:
 
 ## Audit Log
 
-Every create, view, update, and delete across all six resources (patients, visits, medical history, appointments, medicines, users) is permanently recorded — who did it, when, and (for create/update/delete) a before/after snapshot of what changed.
+Every **create, update, and delete** across all six resources (patients, visits, medical history, appointments, medicines, users) is permanently recorded — who did it, when, and (for updates/deletes) a before/after snapshot of what changed.
+
+**Read-only actions (lists, detail views, dashboard loads) are not logged** — logging every page view would flood the audit trail with noise and make real changes hard to find.
 
 This is a different, separate system from the `createdBy`/`updatedBy` fields you'll see on individual records — those only ever reflect the most recent change to that record. The audit log keeps the full history forever, even after a record has been edited many times since.
 

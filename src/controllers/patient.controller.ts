@@ -2,14 +2,18 @@ import { Request, Response, NextFunction } from "express";
 import { PatientService } from "../services/patient.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
 const patientService = new PatientService();
 
 // CREATE
 export const createPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
-    const patient = await patientService.createPatient({ ...req.body, createdBy: userId });
+    const userId = getAuthenticatedUser(req).id;
+    const patient = await patientService.createPatient({
+      ...req.body,
+      createdBy: getAuthenticatedObjectId(req),
+    });
 
     logAudit({
       action: "create",
@@ -28,24 +32,15 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
 };
 
 // GET ALL (doctor/nurse)
+// Read-only list — not audit-logged. The audit trail records creates,
+// updates, and deletes only, not every page load or search.
 export const getPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const includeInactive = req.query.includeInactive === "true";
     const search = req.query.search as string | undefined;
     const pagination = getPaginationParams(req.query);
 
     const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
-
-    logAudit({
-      action: "view",
-      resource: "Patient",
-      resourceId: "list",
-      performedBy: userId,
-      after: { viewedIds: patients.map((p: any) => String(p._id)), page: pagination.page },
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({
       success: true,
@@ -72,21 +67,11 @@ export const getPatientsBasic = async (req: Request, res: Response, next: NextFu
   }
 };
 
-// GET BY ID
+// GET BY ID — read-only, not audit-logged
 export const getPatientById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const id = req.params.id as string;
     const patient = await patientService.getPatientById(id);
-
-    logAudit({
-      action: "view",
-      resource: "Patient",
-      resourceId: id,
-      performedBy: userId,
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({ success: true, message: "Patient retrieved successfully", data: patient });
   } catch (error) {
@@ -98,8 +83,11 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
 export const updatePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
-    const { before, after } = await patientService.updatePatient(id, { ...req.body, updatedBy: userId });
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await patientService.updatePatient(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
+    });
 
     logAudit({
       action: "update",
@@ -122,7 +110,7 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
 export const archivePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
     const { before, after } = await patientService.archivePatient(id, userId);
 
     logAudit({

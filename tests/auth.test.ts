@@ -70,13 +70,13 @@ describe("Auth - Login", () => {
         password: "wrongpassword"
       });
 
-    expect(res.status).toBe(400);
-    expect(res.body.message).toBe("Invalid password");
+    expect(res.status).toBe(401);
+    expect(res.body.message).toBe("Invalid email or password");
 
   });
 
 
-  it("rejects login for an email that doesn't exist", async () => {
+  it("rejects login for an email that doesn't exist with the same message as wrong password", async () => {
 
     const res = await request(app)
       .post("/api/auth/login")
@@ -85,7 +85,8 @@ describe("Auth - Login", () => {
         password: "anything123"
       });
 
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
+    expect(res.body.message).toBe("Invalid email or password");
 
   });
 

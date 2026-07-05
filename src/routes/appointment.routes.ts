@@ -15,11 +15,11 @@ import { createAppointmentSchema, updateAppointmentSchema } from "../validators/
 const router = express.Router();
 
 
-// Staff only - create appointment
+// Staff + Nurse - create appointment
 router.post(
   "/",
   protect,
-  allowRoles("staff"),
+  allowRoles("staff", "nurse"),
   validateBody(createAppointmentSchema),
   createAppointment
 );
@@ -43,11 +43,11 @@ router.get(
 );
 
 
-// Staff only - update appointment (including cancelling)
+// Staff + Nurse - update appointment (including rescheduling and cancelling)
 router.put(
   "/:id",
   protect,
-  allowRoles("staff"),
+  allowRoles("staff", "nurse"),
   validateBody(updateAppointmentSchema),
   updateAppointment
 );

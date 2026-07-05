@@ -21,6 +21,11 @@ const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "admin123";
 
 const seedAdmin = async () => {
 
+  if (process.env.NODE_ENV === "production" && !process.env.SEED_ADMIN_PASSWORD) {
+    console.error("ERROR: Set SEED_ADMIN_PASSWORD env var before seeding in production.");
+    process.exit(1);
+  }
+
   await mongoose.connect(process.env.MONGO_URI as string);
 
   const existing = await User.findOne({ email: ADMIN_EMAIL });
@@ -41,7 +46,7 @@ const seedAdmin = async () => {
     role: "admin"
   });
 
-  console.log(`Admin created: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
+  console.log(`Admin created: ${ADMIN_EMAIL}`);
 
   await mongoose.connection.close();
 

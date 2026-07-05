@@ -58,7 +58,7 @@ export class ClinicVisitService {
     }
 
     const after = await ClinicVisit.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     });
 
@@ -79,7 +79,7 @@ export class ClinicVisitService {
     const after = await ClinicVisit.findByIdAndUpdate(
       id,
       { isActive: false, updatedBy },
-      { new: true }
+      { returnDocument: "after" }
     );
 
     if (!after) {
@@ -87,5 +87,11 @@ export class ClinicVisitService {
     }
 
     return { before, after };
+  }
+
+  async getTodayCount(): Promise<number> {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    return ClinicVisit.countDocuments({ visitDate: { $gte: start }, isActive: true });
   }
 }

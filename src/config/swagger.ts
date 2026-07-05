@@ -282,7 +282,7 @@ const paths: ZodOpenApiPathsObject = {
   // ----- APPOINTMENTS -----
   "/appointments": {
     post: {
-      tags: ["Appointments"], summary: "Book a new appointment (staff only)", security: bearerAuth,
+      tags: ["Appointments"], summary: "Book a new appointment (staff/nurse)", security: bearerAuth,
       requestBody: { content: { "application/json": { schema: createAppointmentSchema } } },
       responses: { 201: { description: "Appointment created", content: { "application/json": { schema: successResponse() } } }, ...standardResponses(successResponse()) },
     },
@@ -305,7 +305,7 @@ const paths: ZodOpenApiPathsObject = {
       responses: standardResponses(successResponse()),
     },
     put: {
-      tags: ["Appointments"], summary: "Update an appointment, e.g. cancel it (staff only)", security: bearerAuth,
+      tags: ["Appointments"], summary: "Update an appointment, e.g. reschedule or cancel (staff/nurse)", security: bearerAuth,
       requestParams: { path: idParam },
       requestBody: { content: { "application/json": { schema: updateAppointmentSchema } } },
       responses: standardResponses(successResponse()),

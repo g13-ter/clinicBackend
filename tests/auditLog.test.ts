@@ -154,7 +154,7 @@ describe("Audit Logs - real actions get recorded", () => {
   });
 
 
-  it("records a view action when the patient is fetched by id", async () => {
+  it("does not record a view action when a patient is fetched by id", async () => {
 
     const viewRes = await request(app)
       .get(`/api/patients/${createdPatientId}`)
@@ -162,13 +162,14 @@ describe("Audit Logs - real actions get recorded", () => {
 
     expect(viewRes.status).toBe(200);
 
-    const entry = await waitForAuditEntry(
-      `resource=Patient&resourceId=${createdPatientId}&action=view`,
-      adminToken
-    );
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-    expect(entry).toBeDefined();
-    expect(entry.action).toBe("view");
+    const res = await request(app)
+      .get(`/api/audit-logs?resource=Patient&resourceId=${createdPatientId}&action=view`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBe(0);
 
   });
 

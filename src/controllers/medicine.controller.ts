@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from "express";
 import { MedicineService } from "../services/medicine.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
 const medicineService = new MedicineService();
 
 // CREATE
 export const createMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
     const { name, quantity, unit, expiryDate, lowStockThreshold } = req.body;
 
     const medicine = await medicineService.createMedicine({
@@ -17,7 +18,7 @@ export const createMedicine = async (req: Request, res: Response, next: NextFunc
       unit,
       expiryDate,
       lowStockThreshold,
-      lastUpdatedBy: userId,
+      lastUpdatedBy: getAuthenticatedObjectId(req),
     });
 
     logAudit({
@@ -36,24 +37,13 @@ export const createMedicine = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-// GET ALL
+// GET ALL — read-only, not audit-logged
 export const getMedicines = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const search = req.query.search as string | undefined;
     const pagination = getPaginationParams(req.query);
 
     const { medicines, total } = await medicineService.getMedicines(pagination, search);
-
-    logAudit({
-      action: "view",
-      resource: "Medicine",
-      resourceId: "list",
-      performedBy: userId,
-      after: { viewedIds: medicines.map((m: any) => String(m._id)), page: pagination.page },
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({
       success: true,
@@ -66,21 +56,11 @@ export const getMedicines = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
-// GET BY ID
+// GET BY ID — read-only, not audit-logged
 export const getMedicineById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const id = req.params.id as string;
     const medicine = await medicineService.getMedicineById(id);
-
-    logAudit({
-      action: "view",
-      resource: "Medicine",
-      resourceId: id,
-      performedBy: userId,
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({ success: true, message: "Medicine retrieved successfully", data: medicine });
   } catch (error) {
@@ -92,11 +72,11 @@ export const getMedicineById = async (req: Request, res: Response, next: NextFun
 export const updateMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
 
     const { before, after } = await medicineService.updateMedicine(id, {
       ...req.body,
-      lastUpdatedBy: userId,
+      lastUpdatedBy: getAuthenticatedObjectId(req),
     });
 
     logAudit({

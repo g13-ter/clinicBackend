@@ -69,7 +69,7 @@ afterAll(async () => {
 });
 
 
-describe("Appointments - Create (staff only)", () => {
+describe("Appointments - Create (staff and nurse)", () => {
 
   it("allows STAFF to book an appointment, defaulting to pending status", async () => {
 
@@ -91,7 +91,7 @@ describe("Appointments - Create (staff only)", () => {
   });
 
 
-  it("blocks a NURSE from booking an appointment", async () => {
+  it("allows a NURSE to book an appointment", async () => {
 
     const res = await request(app)
       .post("/api/appointments")
@@ -99,10 +99,11 @@ describe("Appointments - Create (staff only)", () => {
       .send({
         patientId: testPatientId,
         appointmentDate: "2026-07-02T09:00:00.000Z",
-        reason: "Should not be allowed"
+        reason: "Post-visit follow-up"
       });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(201);
+    expect(res.body.data.status).toBe("pending");
 
   });
 
@@ -152,7 +153,7 @@ describe("Appointments - Shared view access", () => {
 });
 
 
-describe("Appointments - Status updates (staff only, no real delete)", () => {
+describe("Appointments - Status updates (staff and nurse, no real delete)", () => {
 
   it("blocks a DOCTOR from updating appointment status", async () => {
 
@@ -175,6 +176,20 @@ describe("Appointments - Status updates (staff only, no real delete)", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("cancelled");
+
+  });
+
+
+  it("allows a NURSE to reschedule an appointment", async () => {
+
+    const res = await request(app)
+      .put(`/api/appointments/${createdAppointmentId}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ appointmentDate: "2026-07-10T14:00:00.000Z", status: "confirmed" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("confirmed");
+    expect(new Date(res.body.data.appointmentDate).toISOString()).toBe("2026-07-10T14:00:00.000Z");
 
   });
 

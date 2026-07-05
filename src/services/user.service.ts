@@ -2,9 +2,10 @@ import User, { IUser } from "../models/user.model";
 import bcrypt from "bcryptjs";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import type { UserRole } from "../types/roles";
 
 export class UserService {
-  async createUser(data: { name: string; email: string; password: string; role: string }): Promise<IUser> {
+  async createUser(data: { name: string; email: string; password: string; role: UserRole }): Promise<IUser> {
     const existing = await User.findOne({ email: data.email });
     if (existing) {
       throw new AppError("Email already in use", 400);
@@ -37,7 +38,7 @@ export class UserService {
     return user;
   }
 
-  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: string }>): Promise<{ before: IUser; after: IUser }> {
+  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: UserRole }>): Promise<{ before: IUser; after: IUser }> {
     const before = await User.findById(id).select("-password");
 
     if (!before) {
@@ -51,7 +52,7 @@ export class UserService {
     }
 
     const after = await User.findByIdAndUpdate(id, updateData, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }).select("-password");
 

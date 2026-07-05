@@ -17,7 +17,12 @@ export class AuditLogService {
 
     if (filters.resource) filter.resource = filters.resource;
     if (filters.resourceId) filter.resourceId = filters.resourceId;
-    if (filters.action) filter.action = filters.action;
+    if (filters.action) {
+      filter.action = filters.action;
+    } else {
+      // Hide legacy read-access entries — the audit trail is for data changes.
+      filter.action = { $ne: "view" };
+    }
     if (filters.performedBy) filter.performedBy = filters.performedBy;
 
     const [logs, total] = await Promise.all([

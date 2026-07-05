@@ -1,7 +1,10 @@
-import Patient from "../models/patient.model";
 import ClinicVisit from "../models/clinicVisit.model";
-import Medicine from "../models/medicine.model";
+import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
+
+interface PopulatedPatientRef {
+  gender?: string;
+}
 
 export interface GenderBreakdown {
   male: number;
@@ -72,7 +75,7 @@ export class ReportService {
     let female = 0;
 
     for (const visit of visitsInPeriod) {
-      const patient = visit.patientId as any;
+      const patient = visit.patientId as PopulatedPatientRef | null;
       if (patient?.gender === "Male") male++;
       else if (patient?.gender === "Female") female++;
       // a visit whose patient record was deleted/unlinked is still
@@ -99,7 +102,7 @@ export class ReportService {
     // ----- Medicine stock (current snapshot, not period-filtered - the
     // report should reflect what's on hand right now, not what was on
     // hand at some point during the period) -----
-    const medicineStock: MedicineStockRow[] = allMedicines.map((med: any) => ({
+    const medicineStock: MedicineStockRow[] = allMedicines.map((med: IMedicine) => ({
       name: med.name,
       remainingStock: med.quantity,
       unit: med.unit,

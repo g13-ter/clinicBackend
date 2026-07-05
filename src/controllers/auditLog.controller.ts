@@ -7,7 +7,8 @@ const auditLogService = new AuditLogService();
 
 // GET ALL (admin only)
 // Supports filtering by resource (e.g. "Patient"), resourceId, action
-// (create/update/delete/view), and performedBy (a user id).
+// (create/update/delete), and performedBy (a user id).
+// Legacy "view" entries are hidden unless ?action=view is passed explicitly.
 export const getAuditLogs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const pagination = getPaginationParams(req.query);

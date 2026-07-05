@@ -2,13 +2,14 @@ import { Request, Response, NextFunction } from "express";
 import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser } from "../utils/authUser";
 
 const userService = new UserService();
 
 // CREATE
 export const createUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const performedBy = (req as any).user.id;
+    const performedBy = getAuthenticatedUser(req).id;
     const { name, email, password, role } = req.body;
     const user = await userService.createUser({ name, email, password, role });
 
@@ -31,22 +32,11 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
   }
 };
 
-// GET ALL
+// GET ALL — read-only, not audit-logged
 export const getUsers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const performedBy = (req as any).user.id;
     const pagination = getPaginationParams(req.query);
     const { users, total } = await userService.getUsers(pagination);
-
-    logAudit({
-      action: "view",
-      resource: "User",
-      resourceId: "list",
-      performedBy,
-      after: { viewedIds: users.map((u: any) => String(u._id)), page: pagination.page },
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({
       success: true,
@@ -59,21 +49,11 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction):
   }
 };
 
-// GET BY ID
+// GET BY ID — read-only, not audit-logged
 export const getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const performedBy = (req as any).user.id;
     const id = req.params.id as string;
     const user = await userService.getUserById(id);
-
-    logAudit({
-      action: "view",
-      resource: "User",
-      resourceId: id,
-      performedBy,
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({ success: true, message: "User retrieved successfully", data: user });
   } catch (error) {
@@ -85,7 +65,7 @@ export const getUserById = async (req: Request, res: Response, next: NextFunctio
 export const updateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const performedBy = (req as any).user.id;
+    const performedBy = getAuthenticatedUser(req).id;
     const { name, email, password, role } = req.body;
 
     const { before, after } = await userService.updateUser(id, { name, email, password, role });
@@ -111,7 +91,7 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
 export const deleteUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const performedBy = (req as any).user.id;
+    const performedBy = getAuthenticatedUser(req).id;
 
     const deletedUser = await userService.deleteUser(id);
 

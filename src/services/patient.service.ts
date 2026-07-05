@@ -61,7 +61,7 @@ export class PatientService {
     }
 
     const after = await Patient.findByIdAndUpdate(id, data, {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     });
 
@@ -82,7 +82,7 @@ export class PatientService {
     const after = await Patient.findByIdAndUpdate(
       id,
       { isActive: false, updatedBy },
-      { new: true }
+      { returnDocument: "after" }
     );
 
     if (!after) {

@@ -2,13 +2,24 @@ import { Request, Response, NextFunction } from "express";
 import { ClinicVisitService } from "../services/clinicVisit.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
 const clinicVisitService = new ClinicVisitService();
+
+// GET TODAY COUNT
+export const getTodayVisitCount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const count = await clinicVisitService.getTodayCount();
+    res.status(200).json({ success: true, data: { count } });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // CREATE
 export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
     const { patientId, complaint, treatment, notes, bloodPressure, temperature, pulseRate } = req.body;
 
     const visit = await clinicVisitService.createVisit({
@@ -19,7 +30,7 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
       bloodPressure,
       temperature,
       pulseRate,
-      recordedBy: userId,
+      recordedBy: getAuthenticatedObjectId(req),
     });
 
     logAudit({
@@ -38,25 +49,14 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
-// GET ALL BY PATIENT
+// GET ALL BY PATIENT — read-only, not audit-logged
 export const getVisitsByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const patientId = req.params.patientId as string;
     const search = req.query.search as string | undefined;
     const pagination = getPaginationParams(req.query);
 
     const { visits, total } = await clinicVisitService.getVisitsByPatient(patientId, pagination, search);
-
-    logAudit({
-      action: "view",
-      resource: "ClinicVisit",
-      resourceId: `patient:${patientId}`,
-      performedBy: userId,
-      after: { viewedIds: visits.map((v: any) => String(v._id)), page: pagination.page },
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({
       success: true,
@@ -69,21 +69,11 @@ export const getVisitsByPatient = async (req: Request, res: Response, next: Next
   }
 };
 
-// GET BY ID
+// GET BY ID — read-only, not audit-logged
 export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = (req as any).user.id;
     const id = req.params.id as string;
     const visit = await clinicVisitService.getVisitById(id);
-
-    logAudit({
-      action: "view",
-      resource: "ClinicVisit",
-      resourceId: id,
-      performedBy: userId,
-      method: req.method,
-      path: req.originalUrl,
-    });
 
     res.status(200).json({ success: true, message: "Clinic visit retrieved successfully", data: visit });
   } catch (error) {
@@ -95,8 +85,11 @@ export const getVisitById = async (req: Request, res: Response, next: NextFuncti
 export const updateVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
-    const { before, after } = await clinicVisitService.updateVisit(id, { ...req.body, updatedBy: userId });
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await clinicVisitService.updateVisit(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
+    });
 
     logAudit({
       action: "update",
@@ -119,7 +112,7 @@ export const updateVisit = async (req: Request, res: Response, next: NextFunctio
 export const archiveVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = (req as any).user.id;
+    const userId = getAuthenticatedUser(req).id;
     const { before, after } = await clinicVisitService.archiveVisit(id, userId);
 
     logAudit({

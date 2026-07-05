@@ -12,10 +12,10 @@ interface LogAuditParams {
   path?: string;
 }
 
-// Writes one audit log entry. Fire-and-forget on purpose: audit logging
-// should never slow down or break the actual request. If writing the log
-// fails (DB hiccup, etc.), we record it in the normal app logger and move
-// on - we do not want a logging failure to turn into a 500 for the user.
+// Writes one audit log entry for data changes (create / update / delete).
+// Read-only endpoints are intentionally not logged — see controller comments.
+// Fire-and-forget on purpose: if writing the log fails (DB hiccup, etc.),
+// we record it in the normal app logger and move on — never a 500 for the user.
 export const logAudit = (params: LogAuditParams): void => {
   const changes: { before?: Record<string, unknown>; after?: Record<string, unknown> } = {};
   if (params.before !== undefined) changes.before = params.before;
