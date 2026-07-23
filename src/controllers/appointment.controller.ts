@@ -6,6 +6,7 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { mailer } from "../services/mailer.service";
+import { sendImmediateReminderIfLateBooking } from "../services/reminder.service";
 import logger from "../utils/logger";
 
 const appointmentService = new AppointmentService();
@@ -61,6 +62,14 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
         });
       } catch (emailError) {
         logger.error("Failed to send appointment confirmation email:", emailError);
+      }
+
+      // If this appointment was booked too close to its date for the
+      // hourly reminder sweep to ever catch it, send the reminder now.
+      try {
+        await sendImmediateReminderIfLateBooking(String(appointment._id));
+      } catch (reminderError) {
+        logger.error("Failed to send immediate reminder for late-booked appointment:", reminderError);
       }
     })();
   } catch (error) {
