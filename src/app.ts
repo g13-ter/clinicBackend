@@ -16,6 +16,7 @@ import { generalLimiter } from "./middleware/rateLimit.middleware";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
 import auditLogRoutes from "./routes/auditLog.routes";
 import reportRoutes from "./routes/report.routes";
+import analyticsRoutes from "./routes/analytics.routes";
 
 // This file ONLY builds the Express app - it does NOT start a
 // real network server (no app.listen here). That's what makes it
@@ -68,6 +69,8 @@ app.use("/api/medicines", medicineRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
 
 app.use("/api/reports", reportRoutes);
+
+app.use("/api/analytics", analyticsRoutes);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("School clinic API Running");
