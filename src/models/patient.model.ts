@@ -9,6 +9,7 @@ export interface IPatient extends Document {
   course: string;
   yearLevel: number;
   contactNumber: string;
+  email?: string;
   address: string;
   isActive: boolean;
   createdBy?: mongoose.Types.ObjectId;
@@ -57,6 +58,13 @@ const PatientSchema = new Schema<IPatient>(
     contactNumber: {
       type: String,
       required: true,
+    },
+
+    // Optional - used to send appointment confirmation/reminder emails.
+    // Not every student has one on file, so appointment booking still
+    // works without it; the email just won't be sent.
+    email: {
+      type: String,
     },
 
     address: {

@@ -16,6 +16,9 @@ import { generalLimiter } from "./middleware/rateLimit.middleware";
 import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
 import auditLogRoutes from "./routes/auditLog.routes";
 import reportRoutes from "./routes/report.routes";
+import purchaseRequestRoutes from "./routes/purchaseRequest.routes";
+import internalRoutes from "./routes/internal.routes";
+import dashboardRoutes from "./routes/dashboard.routes";
 
 // This file ONLY builds the Express app - it does NOT start a
 // real network server (no app.listen here). That's what makes it
@@ -34,8 +37,24 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.use(helmet());
+
+// CLIENT_ORIGIN may be a single URL or a comma-separated list (e.g. your
+// production domain plus Vercel preview-deployment URLs). Each origin is
+// trimmed and matched exactly against the request's Origin header.
+const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_ORIGIN || "http://localhost:5173",
+  origin: (origin, callback) => {
+    // No Origin header (e.g. curl, server-to-server, same-origin) — allow.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`Not allowed by CORS: ${origin}`));
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -68,6 +87,12 @@ app.use("/api/medicines", medicineRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
 
 app.use("/api/reports", reportRoutes);
+
+app.use("/api/purchase-requests", purchaseRequestRoutes);
+
+app.use("/api/internal", internalRoutes);
+
+app.use("/api/dashboard", dashboardRoutes);
 
 app.get("/", (req: Request, res: Response) => {
   res.send("School clinic API Running");

@@ -1,19 +1,26 @@
 import { Request, Response, NextFunction } from "express";
 import { AppointmentService } from "../services/appointment.service";
+import { PatientService } from "../services/patient.service";
+import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
+import { mailer } from "../services/mailer.service";
+import logger from "../utils/logger";
 
 const appointmentService = new AppointmentService();
+const patientService = new PatientService();
+const userService = new UserService();
 
 // CREATE
 export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { patientId, appointmentDate, reason, notes } = req.body;
+    const { patientId, doctorId, appointmentDate, reason, notes } = req.body;
 
     const appointment = await appointmentService.createAppointment({
       patientId,
+      doctorId,
       appointmentDate,
       reason,
       notes,
@@ -31,6 +38,31 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     });
 
     res.status(201).json({ success: true, message: "Appointment created successfully", data: appointment });
+
+    // Fire-and-forget: never let an email failure affect the API response,
+    // which has already been sent above.
+    (async () => {
+      try {
+        const patient = await patientService.getPatientById(patientId);
+        if (!patient.email) return;
+
+        let doctorName: string | undefined;
+        if (doctorId) {
+          const doctor = await userService.getUserById(doctorId);
+          doctorName = doctor.name;
+        }
+
+        await mailer.sendAppointmentConfirmation({
+          to: patient.email,
+          patientName: `${patient.firstName} ${patient.lastName}`,
+          appointmentDate: appointment.appointmentDate,
+          reason: appointment.reason,
+          ...(doctorName ? { doctorName } : {}),
+        });
+      } catch (emailError) {
+        logger.error("Failed to send appointment confirmation email:", emailError);
+      }
+    })();
   } catch (error) {
     next(error);
   }

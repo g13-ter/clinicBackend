@@ -20,6 +20,20 @@ const getExpiryFlags = (expiryDate: Date | undefined | null) => {
   };
 };
 
+// Single computed status label per the inventory spec:
+// Available | Low Stock | Out of Stock | Expired.
+// Expired takes priority (an expired item isn't "available" no matter the
+// quantity), then out-of-stock, then low-stock, else available.
+export type MedicineStatus = "Available" | "Low Stock" | "Out of Stock" | "Expired";
+
+export const computeStatus = (med: IMedicine): MedicineStatus => {
+  const { isExpired } = getExpiryFlags(med.expiryDate);
+  if (isExpired) return "Expired";
+  if (med.quantity <= 0) return "Out of Stock";
+  if (med.quantity <= med.lowStockThreshold) return "Low Stock";
+  return "Available";
+};
+
 export class MedicineService {
   async createMedicine(data: Partial<IMedicine>): Promise<IMedicine> {
     return await Medicine.create(data);
@@ -49,6 +63,7 @@ export class MedicineService {
         ...med.toObject(),
         isLowStock: med.quantity <= med.lowStockThreshold,
         ...getExpiryFlags(med.expiryDate),
+        status: computeStatus(med),
       })),
       total,
     };
@@ -65,6 +80,7 @@ export class MedicineService {
       ...medicine.toObject(),
       isLowStock: medicine.quantity <= medicine.lowStockThreshold,
       ...getExpiryFlags(medicine.expiryDate),
+      status: computeStatus(medicine),
     };
   }
 
@@ -90,6 +106,14 @@ export class MedicineService {
   async getLowStockMedicines(): Promise<IMedicine[]> {
     const medicines = await Medicine.find();
     return medicines.filter((med: IMedicine) => med.quantity <= med.lowStockThreshold);
+  }
+
+  async deleteMedicine(id: string): Promise<IMedicine> {
+    const medicine = await Medicine.findByIdAndDelete(id);
+    if (!medicine) {
+      throw new AppError("Medicine not found", 404);
+    }
+    return medicine;
   }
 
   async getExpiringMedicines(): Promise<(IMedicine & { isExpired: boolean; isExpiringSoon: boolean })[]> {

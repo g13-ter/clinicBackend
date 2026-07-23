@@ -38,7 +38,23 @@ export class UserService {
     return user;
   }
 
-  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: UserRole }>): Promise<{ before: IUser; after: IUser }> {
+  // Lightweight list for the "select a doctor" step on appointment booking
+  // and for admin's doctor-schedule management screen. Deliberately not
+  // paginated - clinics have a small, fixed number of doctors.
+  async getDoctors(): Promise<IUser[]> {
+    return await User.find({ role: "doctor" })
+      .select("name email isAvailable scheduleNotes")
+      .sort({ name: 1 });
+  }
+
+  // Used to notify admins by email (low stock alerts, new purchase
+  // requests). Not paginated for the same reason as getDoctors above.
+  async getAdminEmails(): Promise<string[]> {
+    const admins = await User.find({ role: "admin" }).select("email");
+    return admins.map((admin) => admin.email);
+  }
+
+  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: UserRole; isAvailable: boolean; scheduleNotes: string }>): Promise<{ before: IUser; after: IUser }> {
     const before = await User.findById(id).select("-password");
 
     if (!before) {

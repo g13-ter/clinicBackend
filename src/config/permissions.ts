@@ -26,6 +26,13 @@ export const PERMISSIONS = {
     update: ["nurse"] as const satisfies readonly UserRole[],
     delete: ["nurse"] as const satisfies readonly UserRole[],
   },
+  purchaseRequests: {
+    // Nurse submits a restock request when stock is low/out; admin reviews it.
+    create: ["nurse"] as const satisfies readonly UserRole[],
+    list: ["nurse", "admin"] as const satisfies readonly UserRole[],
+    viewById: ["nurse", "admin"] as const satisfies readonly UserRole[],
+    review: ["admin"] as const satisfies readonly UserRole[],
+  },
   visits: {
     create: ["nurse"] as const satisfies readonly UserRole[],
     list: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
@@ -43,6 +50,7 @@ export const PERMISSIONS = {
   },
   users: {
     manage: ["admin"] as const satisfies readonly UserRole[],
+    listDoctors: ["staff", "nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
   },
   auditLogs: {
     view: ["admin"] as const satisfies readonly UserRole[],
@@ -50,9 +58,12 @@ export const PERMISSIONS = {
   reports: {
     generate: ["admin"] as const satisfies readonly UserRole[],
   },
+  dashboard: {
+    view: ["admin", "doctor", "nurse", "staff"] as const satisfies readonly UserRole[],
+  },
 } as const;
 
 export const roleHasPermission = (
   role: UserRole,
   allowed: readonly UserRole[]
-): boolean => allowed.includes(role);
+): boolean => allowed.includes(role); 

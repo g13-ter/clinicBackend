@@ -49,7 +49,7 @@ router.get(
 router.get(
   "/",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("admin","nurse", "doctor"),
   getMedicines
 );
 

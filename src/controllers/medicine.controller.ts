@@ -1,23 +1,30 @@
 import { Request, Response, NextFunction } from "express";
-import { MedicineService } from "../services/medicine.service";
+import { MedicineService, computeStatus } from "../services/medicine.service";
+import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
+import { mailer } from "../services/mailer.service";
+import logger from "../utils/logger";
 
 const medicineService = new MedicineService();
+const userService = new UserService();
 
 // CREATE
 export const createMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { name, quantity, unit, expiryDate, lowStockThreshold } = req.body;
+    const { name, category, quantity, unit, expiryDate, lowStockThreshold, supplier, dateReceived } = req.body;
 
     const medicine = await medicineService.createMedicine({
       name,
+      category,
       quantity,
       unit,
       expiryDate,
       lowStockThreshold,
+      supplier,
+      dateReceived,
       lastUpdatedBy: getAuthenticatedObjectId(req),
     });
 
@@ -91,6 +98,36 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
     });
 
     res.status(200).json({ success: true, message: "Medicine updated successfully", data: after });
+
+    // Fire-and-forget: response already sent above, email failure must
+    // never affect it. Only alert when the update just CROSSED into a
+    // concerning status (e.g. Available -> Low Stock) - not on every
+    // update to an item that was already low/out/expired, which would
+    // spam admins on every unrelated edit.
+    const concerningStatuses = ["Low Stock", "Out of Stock", "Expired"];
+    const beforeStatus = computeStatus(before);
+    const afterStatus = computeStatus(after);
+
+    if (concerningStatuses.includes(afterStatus) && beforeStatus !== afterStatus) {
+      (async () => {
+        try {
+          const adminEmails = await userService.getAdminEmails();
+          await Promise.all(
+            adminEmails.map((to) =>
+              mailer.sendLowStockAlert({
+                to,
+                itemName: after.name,
+                quantity: after.quantity,
+                unit: after.unit,
+                status: afterStatus,
+              })
+            )
+          );
+        } catch (emailError) {
+          logger.error("Failed to send low stock alert email:", emailError);
+        }
+      })();
+    }
   } catch (error) {
     next(error);
   }
@@ -104,6 +141,30 @@ export const getLowStockMedicines = async (req: Request, res: Response, next: Ne
   try {
     const lowStock = await medicineService.getLowStockMedicines();
     res.status(200).json({ success: true, message: "Low stock medicines retrieved successfully", data: lowStock });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// DELETE — remove an expired or discontinued item from inventory
+export const deleteMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+
+    const deleted = await medicineService.deleteMedicine(id);
+
+    logAudit({
+      action: "delete",
+      resource: "Medicine",
+      resourceId: id,
+      performedBy: userId,
+      before: deleted.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Medicine removed from inventory successfully" });
   } catch (error) {
     next(error);
   }
