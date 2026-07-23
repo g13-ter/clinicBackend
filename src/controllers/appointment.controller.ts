@@ -1,7 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { AppointmentService } from "../services/appointment.service";
 import { PatientService } from "../services/patient.service";
-import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
@@ -11,7 +10,6 @@ import logger from "../utils/logger";
 
 const appointmentService = new AppointmentService();
 const patientService = new PatientService();
-const userService = new UserService();
 
 // CREATE
 export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -47,18 +45,11 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
         const patient = await patientService.getPatientById(patientId);
         if (!patient.email) return;
 
-        let doctorName: string | undefined;
-        if (doctorId) {
-          const doctor = await userService.getUserById(doctorId);
-          doctorName = doctor.name;
-        }
-
         await mailer.sendAppointmentConfirmation({
           to: patient.email,
           patientName: `${patient.firstName} ${patient.lastName}`,
           appointmentDate: appointment.appointmentDate,
           reason: appointment.reason,
-          ...(doctorName ? { doctorName } : {}),
         });
       } catch (emailError) {
         logger.error("Failed to send appointment confirmation email:", emailError);

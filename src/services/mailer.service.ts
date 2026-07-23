@@ -6,10 +6,6 @@ import logger from "../utils/logger";
 // logs what WOULD have been sent and returns successfully instead of
 // throwing - so the rest of the app (appointments, inventory, purchase
 // requests) keeps working exactly as before with email simply "off".
-const resendApiKey = process.env.RESEND_API_KEY;
-const fromAddress = process.env.EMAIL_FROM || "School Clinic <clinic@resend.dev>";
-
-const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 interface SendEmailParams {
   to: string;
@@ -23,10 +19,16 @@ interface SendEmailParams {
 // failure turn into a failed API request (booking an appointment must
 // still succeed even if the confirmation email fails to send).
 const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<void> => {
-  if (!resend) {
-    logger.info(`[mailer] RESEND_API_KEY not set - skipping email. Would have sent "${subject}" to ${to}`);
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const fromAddress =
+    process.env.EMAIL_FROM || "School Clinic <onboarding@resend.dev>";
+
+  if (!resendApiKey) {
+    logger.error("[mailer] RESEND_API_KEY not found.");
     return;
   }
+
+  const resend = new Resend(resendApiKey);
 
   try {
     const { error } = await resend.emails.send({
@@ -37,10 +39,13 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<void> 
     });
 
     if (error) {
-      logger.error(`[mailer] Resend rejected email "${subject}" to ${to}:`, error);
+      logger.error("[mailer] Resend error:", error);
+      return;
     }
+
+    logger.info(`[mailer] Email sent successfully to ${to}`);
   } catch (error) {
-    logger.error(`[mailer] Failed to send email "${subject}" to ${to}:`, error);
+    logger.error("[mailer] Failed to send email:", error);
   }
 };
 
