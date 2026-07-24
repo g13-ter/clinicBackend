@@ -82,14 +82,20 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
   // ----- I. Executive Summary -----
   const totalVisits = stats.studentAttendance.total;
   const executiveSummary =
-    totalVisits > 0
+    (totalVisits > 0
       ? `This report presents the activities and services provided by the school clinic for ${periodLabel}. ` +
-        `A total of ${totalVisits} student ${totalVisits === 1 ? "visit" : "visits"} ${totalVisits === 1 ? "was" : "were"} recorded during this period. ` +
-        `${stats.lowStockMedicines.length > 0
-          ? `${stats.lowStockMedicines.length} medicine ${stats.lowStockMedicines.length === 1 ? "item is" : "items are"} currently running low and may require restocking.`
-          : `Medicine inventory levels are currently adequate.`}`
+        `A total of ${totalVisits} student ${totalVisits === 1 ? "visit" : "visits"} ${totalVisits === 1 ? "was" : "were"} recorded during this period. `
       : `This report presents the activities and services provided by the school clinic for ${periodLabel}. ` +
-        `No clinic visits were recorded during this period.`;
+        `No clinic visits were recorded during this period. `) +
+    `${stats.appointmentStats.total} ${stats.appointmentStats.total === 1 ? "appointment was" : "appointments were"} booked in this period ` +
+    `(${stats.appointmentStats.completed} completed, ${stats.appointmentStats.cancelled} cancelled), and ` +
+    `${stats.consultationsCount} doctor ${stats.consultationsCount === 1 ? "consultation was" : "consultations were"} logged. ` +
+    `${stats.lowStockMedicines.length > 0
+      ? `${stats.lowStockMedicines.length} medicine ${stats.lowStockMedicines.length === 1 ? "item is" : "items are"} currently running low and may require restocking.`
+      : `Medicine inventory levels are currently adequate.`} ` +
+    `${stats.pendingPurchaseRequestsCount > 0
+      ? `${stats.pendingPurchaseRequestsCount} purchase ${stats.pendingPurchaseRequestsCount === 1 ? "request is" : "requests are"} currently pending admin review.`
+      : `There are no pending purchase requests at this time.`}`;
 
   // ----- II. Clinic Attendance table -----
   const attendanceTable = new Table({
@@ -189,6 +195,71 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       ? stats.lowStockMedicines.map((m) => `${m.name} (${m.remainingStock} ${m.unit} remaining)`).join(", ")
       : "None at this time.";
 
+  // ----- Appointments & Consultations (additional system data) -----
+  // Not part of the official monthly report template's numbered sections,
+  // but genuine system-recorded data worth surfacing - kept separate from
+  // the numbered sections above so it doesn't disturb the official
+  // template's numbering.
+  const appointmentsTable = new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows: [
+      new TableRow({
+        children: [headerCell("Status"), headerCell("Count")],
+      }),
+      new TableRow({ children: [bodyCell("Pending"), bodyCell(String(stats.appointmentStats.pending), true)] }),
+      new TableRow({ children: [bodyCell("Confirmed"), bodyCell(String(stats.appointmentStats.confirmed), true)] }),
+      new TableRow({ children: [bodyCell("Completed"), bodyCell(String(stats.appointmentStats.completed), true)] }),
+      new TableRow({ children: [bodyCell("Cancelled"), bodyCell(String(stats.appointmentStats.cancelled), true)] }),
+      new TableRow({
+        children: [headerCell("Total Appointments"), headerCell(String(stats.appointmentStats.total))],
+      }),
+    ],
+  });
+
+  // ----- IX. Recommendations - genuinely data-driven, not a fixed list -----
+  // Each recommendation only appears if the underlying data actually
+  // supports it, and cites the real figures - so this section changes
+  // meaningfully between reports instead of reading the same every time.
+  const recommendations: string[] = [];
+
+  if (stats.lowStockMedicines.length > 0) {
+    recommendations.push(
+      `Replenish clinic medicines and supplies currently low on stock: ${lowStockLine}.`
+    );
+  } else {
+    recommendations.push("Continue monitoring medicine inventory levels, which are currently adequate.");
+  }
+
+  if (stats.pendingPurchaseRequestsCount > 0) {
+    recommendations.push(
+      `Review and act on the ${stats.pendingPurchaseRequestsCount} pending purchase ` +
+        `${stats.pendingPurchaseRequestsCount === 1 ? "request" : "requests"} awaiting approval.`
+    );
+  }
+
+  const topComplaint = stats.complaintCounts[0];
+  if (topComplaint && stats.studentAttendance.total > 0 && topComplaint.count / stats.studentAttendance.total >= 0.25) {
+    recommendations.push(
+      `Consider a targeted health education session on "${topComplaint.complaint}", the most frequently ` +
+        `reported concern this period (${topComplaint.count} of ${stats.studentAttendance.total} visits).`
+    );
+  } else {
+    recommendations.push("Continue health education and awareness activities.");
+  }
+
+  if (
+    stats.appointmentStats.total > 0 &&
+    stats.appointmentStats.cancelled / stats.appointmentStats.total >= 0.2
+  ) {
+    recommendations.push(
+      `Follow up on the relatively high number of cancelled appointments this period ` +
+        `(${stats.appointmentStats.cancelled} of ${stats.appointmentStats.total}) to identify possible scheduling issues.`
+    );
+  }
+
+  recommendations.push("Encourage students to report illnesses early.");
+  recommendations.push("Strengthen coordination with parents and local health authorities.");
+
   const doc = new Document({
     sections: [
       {
@@ -241,6 +312,13 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           }),
           medicineTable,
 
+          sectionHeading("Appointments & Consultations Summary (System Data)"),
+          new Paragraph({
+            text: `${stats.consultationsCount} doctor ${stats.consultationsCount === 1 ? "consultation was" : "consultations were"} recorded in this period.`,
+            spacing: { after: 150 },
+          }),
+          appointmentsTable,
+
           sectionHeading("V. Health Programs and Activities"),
           new Paragraph({ text: NOT_TRACKED_NOTE, spacing: { after: 200 } }),
 
@@ -262,10 +340,9 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           blankLine("Other concerns"),
 
           sectionHeading("IX. Recommendations"),
-          new Paragraph({ text: "1. Replenish clinic medicines and supplies.", spacing: { after: 50 } }),
-          new Paragraph({ text: "2. Continue health education and awareness activities.", spacing: { after: 50 } }),
-          new Paragraph({ text: "3. Encourage students to report illnesses early.", spacing: { after: 50 } }),
-          new Paragraph({ text: "4. Strengthen coordination with parents and local health authorities.", spacing: { after: 200 } }),
+          ...recommendations.map(
+            (text, i) => new Paragraph({ text: `${i + 1}. ${text}`, spacing: { after: 50 } })
+          ),
 
           sectionHeading("X. Prepared By"),
           new Paragraph({ children: [new TextRun({ text: "Prepared by:", bold: true })], spacing: { after: 150 } }),

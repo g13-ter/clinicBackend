@@ -1,5 +1,8 @@
 import ClinicVisit from "../models/clinicVisit.model";
 import Medicine, { IMedicine } from "../models/medicine.model";
+import Appointment from "../models/appointment.model";
+import MedicalHistory from "../models/medicalHistory.model";
+import PurchaseRequest from "../models/purchaseRequest.model";
 import { AppError } from "../middleware/error.middleware";
 
 interface PopulatedPatientRef {
@@ -22,6 +25,14 @@ export interface MedicineStockRow {
   remainingStock: number;
   unit: string;
   isLowStock: boolean;
+}
+
+export interface AppointmentBreakdown {
+  total: number;
+  pending: number;
+  confirmed: number;
+  cancelled: number;
+  completed: number;
 }
 
 export interface ReportStats {
@@ -52,6 +63,21 @@ export interface ReportStats {
 
   // Section VIII - Issues and Concerns
   lowStockMedicines: MedicineStockRow[];
+
+  // Appointments booked within the period, broken down by their CURRENT
+  // status (a "confirmed" appointment booked in-period may have since
+  // been completed/cancelled by the time the report runs - that's the
+  // accurate real-time picture, not a snapshot frozen at booking time).
+  appointmentStats: AppointmentBreakdown;
+
+  // Doctor consultations (medical history entries) recorded in the period.
+  consultationsCount: number;
+
+  // Pending purchase requests awaiting admin review right now (a current
+  // snapshot, not period-filtered - same reasoning as medicine stock above:
+  // what matters operationally is what's outstanding today, not what was
+  // pending at some point during the period).
+  pendingPurchaseRequestsCount: number;
 }
 
 export class ReportService {
@@ -61,14 +87,24 @@ export class ReportService {
     }
 
     const visitDateFilter = { visitDate: { $gte: startDate, $lte: endDate }, isActive: true };
+    const appointmentDateFilter = { appointmentDate: { $gte: startDate, $lte: endDate } };
+    const consultationDateFilter = { dateRecorded: { $gte: startDate, $lte: endDate } };
 
-    const [visitsInPeriod, allMedicines] = await Promise.all([
-      ClinicVisit.find(visitDateFilter)
-        .populate("patientId", "gender")
-        .select("complaint patientId"),
+    const [visitsInPeriod, allMedicines, appointmentsInPeriod, consultationsCount, pendingPurchaseRequestsCount] =
+      await Promise.all([
+        ClinicVisit.find(visitDateFilter)
+          .populate("patientId", "gender")
+          .select("complaint patientId"),
 
-      Medicine.find().select("name quantity unit lowStockThreshold"),
-    ]);
+        Medicine.find().select("name quantity unit lowStockThreshold"),
+
+        Appointment.find(appointmentDateFilter).select("status"),
+
+        MedicalHistory.countDocuments(consultationDateFilter),
+
+        // Current snapshot, not period-filtered - see note on the interface above.
+        PurchaseRequest.countDocuments({ status: "pending" }),
+      ]);
 
     // ----- Student attendance by gender -----
     let male = 0;
@@ -111,6 +147,15 @@ export class ReportService {
 
     const lowStockMedicines = medicineStock.filter((med) => med.isLowStock);
 
+    // ----- Appointment breakdown by current status -----
+    const appointmentStats: AppointmentBreakdown = {
+      total: appointmentsInPeriod.length,
+      pending: appointmentsInPeriod.filter((a) => a.status === "pending").length,
+      confirmed: appointmentsInPeriod.filter((a) => a.status === "confirmed").length,
+      cancelled: appointmentsInPeriod.filter((a) => a.status === "cancelled").length,
+      completed: appointmentsInPeriod.filter((a) => a.status === "completed").length,
+    };
+
     return {
       periodStart: startDate,
       periodEnd: endDate,
@@ -118,6 +163,9 @@ export class ReportService {
       complaintCounts,
       medicineStock,
       lowStockMedicines,
+      appointmentStats,
+      consultationsCount,
+      pendingPurchaseRequestsCount,
     };
   }
 }
