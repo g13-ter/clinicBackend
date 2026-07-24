@@ -1,33 +1,28 @@
 import { Request, Response, NextFunction } from "express";
-import ClinicVisit from "../models/clinicVisit.model";
-import { AppError } from "../middleware/error.middleware";
+import { ClinicVisitService } from "../services/clinicVisit.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
+const clinicVisitService = new ClinicVisitService();
 
-// CREATE VISIT
-export const createVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET TODAY COUNT
+export const getTodayVisitCount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const count = await clinicVisitService.getTodayCount();
+    res.status(200).json({ success: true, data: { count } });
+  } catch (error) {
+    next(error);
+  }
+};
 
-    const {
-      patientId,
-      complaint,
-      treatment,
-      notes,
-      bloodPressure,
-      temperature,
-      pulseRate
-    } = req.body;
+// CREATE
+export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const userId = getAuthenticatedUser(req).id;
+    const { patientId, complaint, treatment, notes, bloodPressure, temperature, pulseRate } = req.body;
 
-
-    // recordedBy comes from the logged-in nurse's token
-    const recordedBy = (req as any).user.id;
-
-
-    const visit = await ClinicVisit.create({
+    const visit = await clinicVisitService.createVisit({
       patientId,
       complaint,
       treatment,
@@ -35,158 +30,104 @@ export const createVisit = async (
       bloodPressure,
       temperature,
       pulseRate,
-      recordedBy
+      recordedBy: getAuthenticatedObjectId(req),
     });
 
-
-    res.status(201).json({
-      message: "Clinic visit created successfully",
-      visit
+    logAudit({
+      action: "create",
+      resource: "ClinicVisit",
+      resourceId: String(visit._id),
+      performedBy: userId,
+      after: visit.toObject(),
+      method: req.method,
+      path: req.originalUrl,
     });
 
+    res.status(201).json({ success: true, message: "Clinic visit created successfully", data: visit });
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// GET ALL VISITS OF A PATIENT
-export const getVisitsByPatient = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET ALL BY PATIENT — read-only, not audit-logged
+export const getVisitsByPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const patientId = req.params.patientId as string;
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
 
-    const patientId = req.params.patientId;
-
-    if (!patientId) {
-      throw new AppError("Patient ID is required", 400);
-    }
-
-    const visits = await ClinicVisit.find({
-      patientId: patientId,
-      isActive: true
-    })
-      .populate("patientId")
-      .sort({
-        visitDate: -1
-      });
-
-
-    res.status(200).json(visits);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET SINGLE VISIT
-export const getVisitById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const visit = await ClinicVisit.findById(
-      req.params.id
-    ).populate("patientId");
-
-
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
-
-    res.status(200).json(visit);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// UPDATE VISIT
-export const updateVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const visit =
-      await ClinicVisit.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {
-          new: true,
-          runValidators: true
-        }
-      );
-
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
+    const { visits, total } = await clinicVisitService.getVisitsByPatient(patientId, pagination, search);
 
     res.status(200).json({
-      message: "Clinic visit updated successfully",
-      visit
+      success: true,
+      message: "Clinic visits retrieved successfully",
+      data: visits,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
     });
-
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// ARCHIVE VISIT (soft delete - admin only)
-export const archiveVisit = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET BY ID — read-only, not audit-logged
+export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = req.params.id as string;
+    const visit = await clinicVisitService.getVisitById(id);
 
-    const visit =
-      await ClinicVisit.findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true }
-      );
+    res.status(200).json({ success: true, message: "Clinic visit retrieved successfully", data: visit });
+  } catch (error) {
+    next(error);
+  }
+};
 
-    if (!visit) {
-      throw new AppError("Clinic visit not found", 404);
-    }
-
-
-    res.status(200).json({
-      message: "Clinic visit archived successfully",
-      visit
+// UPDATE
+export const updateVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await clinicVisitService.updateVisit(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
     });
 
+    logAudit({
+      action: "update",
+      resource: "ClinicVisit",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Clinic visit updated successfully", data: after });
   } catch (error) {
-
     next(error);
-
   }
+};
 
+// ARCHIVE (soft delete)
+export const archiveVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await clinicVisitService.archiveVisit(id, userId);
+
+    logAudit({
+      action: "delete",
+      resource: "ClinicVisit",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Clinic visit archived successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
 };

@@ -1,45 +1,59 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { jwtPayloadSchema } from "../types/auth";
 
 export const protect = (
   req: Request,
   res: Response,
   next: NextFunction
-) => {
+): void => {
   try {
-
+    // 1. Kuhaa ang Authorization header
     const authHeader = req.headers.authorization;
 
-    if (!authHeader) {
-      return res.status(401).json({
-        message: "No token provided"
+    // 2. Siguradoha nga naa ang header ug Bearer ang format
+    if (!authHeader?.startsWith("Bearer ")) {
+      res.status(401).json({
+        message: "Authorization header must start with Bearer",
       });
+      return;
     }
 
+    // 3. Kuhaa ang JWT token
     const token = authHeader.split(" ")[1];
 
     if (!token) {
-      return res.status(401).json({
-        message: "Token missing"
-      });
-    }
+  res.status(401).json({
+    message: "Token missing",
+  });
+  return;
+}
 
-    // process.env.JWT_SECRET is guaranteed to exist here because
-    // server.ts checks for it on startup and exits if it's missing
+    // 4. Verify ang token
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET as string
     );
 
-    (req as any).user = decoded;
+    // 5. Validate ang payload gamit ang Zod
+    const parsed = jwtPayloadSchema.safeParse(decoded);
 
+    if (!parsed.success) {
+      res.status(401).json({
+        message: "Invalid token payload",
+      });
+      return;
+    }
+
+    // 6. Ibutang ang user sa request
+    req.user = parsed.data;
+
+    // 7. Padayon sa sunod nga middleware/controller
     next();
 
-  } catch (error) {
-
-    return res.status(401).json({
-      message: "Invalid token"
+  } catch {
+    res.status(401).json({
+      message: "Invalid or expired token",
     });
-
   }
-};
+}; 

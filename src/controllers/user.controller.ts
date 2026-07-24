@@ -1,206 +1,112 @@
 import { Request, Response, NextFunction } from "express";
-import User from "../models/user.model";
-import bcrypt from "bcryptjs";
-import { AppError } from "../middleware/error.middleware";
+import { UserService } from "../services/user.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser } from "../utils/authUser";
 
+const userService = new UserService();
 
-// CREATE USER
-export const createUser = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// CREATE
+export const createUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    // kuhaon data gikan sa body
+    const performedBy = getAuthenticatedUser(req).id;
     const { name, email, password, role } = req.body;
+    const user = await userService.createUser({ name, email, password, role });
 
+    // never include password (hashed or not) in the audit log or the API response
+    const { password: _omit, ...safeUser } = user.toObject();
 
-    // check kung naa na ang email
-    const existingUser = await User.findOne({
-      email,
+    logAudit({
+      action: "create",
+      resource: "User",
+      resourceId: String(user._id),
+      performedBy,
+      after: safeUser,
+      method: req.method,
+      path: req.originalUrl,
     });
 
-    if (existingUser) {
-      throw new AppError("Email already exists", 400);
-    }
-
-
-    // hash password
-    const salt = await bcrypt.genSalt(10);
-
-    const hashedPassword = await bcrypt.hash(
-      password,
-      salt
-    );
-
-
-    // create user
-    const user = await User.create({
-      name,
-      email,
-      password: hashedPassword,
-      role,
-    });
-
-
-    // remove password sa response
-    const createdUser = await User.findById(
-      user._id
-    ).select("-password");
-
-
-    res.status(201).json({
-      message: "User created successfully",
-      user: createdUser,
-    });
-
+    res.status(201).json({ success: true, message: "User created successfully", data: safeUser });
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// GET ALL USERS
-export const getUsers = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET ALL — read-only, not audit-logged
+export const getUsers = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const users = await User.find()
-      .select("-password");
-
-    res.status(200).json(users);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET USER BY ID
-export const getUserById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const user = await User.findById(
-      req.params.id
-    ).select("-password");
-
-
-    if (!user) {
-      throw new AppError("User not found", 404);
-    }
-
-
-    res.status(200).json(user);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// UPDATE USER
-export const updateUser = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const { name, email, password, role } = req.body;
-
-    const updateData: any = { name, email, role };
-
-
-    // kung naa bag-ong password, i-hash sa una
-    if (password) {
-
-      const salt = await bcrypt.genSalt(10);
-
-      updateData.password = await bcrypt.hash(
-        password,
-        salt
-      );
-
-    }
-
-
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      updateData,
-      {
-        new: true,
-        runValidators: true,
-      }
-    ).select("-password");
-
-
-    if (!user) {
-      throw new AppError("User not found", 404);
-    }
-
+    const pagination = getPaginationParams(req.query);
+    const { users, total } = await userService.getUsers(pagination);
 
     res.status(200).json({
-      message: "User updated successfully",
-      user,
+      success: true,
+      message: "Users retrieved successfully",
+      data: users,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
     });
-
   } catch (error) {
-
     next(error);
-
   }
-
 };
 
-
-// DELETE USER
-export const deleteUser = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// GET BY ID — read-only, not audit-logged
+export const getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = req.params.id as string;
+    const user = await userService.getUserById(id);
 
-    const user = await User.findByIdAndDelete(
-      req.params.id
-    );
+    res.status(200).json({ success: true, message: "User retrieved successfully", data: user });
+  } catch (error) {
+    next(error);
+  }
+};
 
+// UPDATE
+export const updateUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const performedBy = getAuthenticatedUser(req).id;
+    const { name, email, password, role } = req.body;
 
-    if (!user) {
-      throw new AppError("User not found", 404);
-    }
+    const { before, after } = await userService.updateUser(id, { name, email, password, role });
 
-
-    res.status(200).json({
-      message: "User deleted successfully",
+    logAudit({
+      action: "update",
+      resource: "User",
+      resourceId: id,
+      performedBy,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
     });
 
+    res.status(200).json({ success: true, message: "User updated successfully", data: after });
   } catch (error) {
-
     next(error);
-
   }
+};
 
+// DELETE
+export const deleteUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const performedBy = getAuthenticatedUser(req).id;
+
+    const deletedUser = await userService.deleteUser(id);
+
+    logAudit({
+      action: "delete",
+      resource: "User",
+      resourceId: id,
+      performedBy,
+      before: deletedUser.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
 };

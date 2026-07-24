@@ -5,7 +5,8 @@ import {
   getMedicines,
   getMedicineById,
   updateMedicine,
-  getLowStockMedicines
+  getLowStockMedicines,
+  getExpiringMedicines
 } from "../controllers/medicine.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -26,12 +27,21 @@ router.post(
 );
 
 
-// Nurse + Doctor - low stock alert list
+// Nurse + Doctor + Admin - low stock alert list
 router.get(
   "/low-stock",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("nurse", "doctor", "admin"),
   getLowStockMedicines
+);
+
+
+// Nurse + Doctor + Admin - expiring/expired alert list
+router.get(
+  "/expiring",
+  protect,
+  allowRoles("nurse", "doctor", "admin"),
+  getExpiringMedicines
 );
 
 
@@ -39,7 +49,7 @@ router.get(
 router.get(
   "/",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("admin","nurse", "doctor"),
   getMedicines
 );
 

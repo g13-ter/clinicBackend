@@ -1,32 +1,23 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPatient extends Document {
-
   studentId: string;
-
   firstName: string;
-
   lastName: string;
-
   age: number;
-
   gender: string;
-
   course: string;
-
   yearLevel: number;
-
   contactNumber: string;
-
+  email?: string;
   address: string;
-
   isActive: boolean;
-
+  createdBy?: mongoose.Types.ObjectId;
+  updatedBy?: mongoose.Types.ObjectId;
 }
 
 const PatientSchema = new Schema<IPatient>(
   {
-
     studentId: {
       type: String,
       required: true,
@@ -69,6 +60,13 @@ const PatientSchema = new Schema<IPatient>(
       required: true,
     },
 
+    // Optional - used to send appointment confirmation/reminder emails.
+    // Not every student has one on file, so appointment booking still
+    // works without it; the email just won't be sent.
+    email: {
+      type: String,
+    },
+
     address: {
       type: String,
       required: true,
@@ -79,6 +77,15 @@ const PatientSchema = new Schema<IPatient>(
       default: true,
     },
 
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
   },
 
   {
@@ -86,8 +93,6 @@ const PatientSchema = new Schema<IPatient>(
   }
 );
 
-
-const Patient = mongoose.model<IPatient>("Patient",
-    PatientSchema);
+const Patient = mongoose.model<IPatient>("Patient", PatientSchema);
 
 export default Patient;

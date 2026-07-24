@@ -78,7 +78,7 @@ describe("Medical History - Create (doctor only)", () => {
 
     expect(res.status).toBe(201);
 
-    createdEntryId = res.body.entry._id;
+    createdEntryId = res.body.data._id;
 
   });
 
@@ -94,10 +94,10 @@ describe("Medical History - Create (doctor only)", () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.entry.familyHistory).toBe("Mother has asthma");
+    expect(res.body.data.familyHistory).toBe("Mother has asthma");
 
     // clean this extra one up immediately, separate from the main tracked entry
-    await MedicalHistory.findByIdAndDelete(res.body.entry._id);
+    await MedicalHistory.findByIdAndDelete(res.body.data._id);
 
   });
 
@@ -128,8 +128,8 @@ describe("Medical History - View permissions", () => {
       .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.length).toBeGreaterThan(0);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
 
   });
 
@@ -162,7 +162,7 @@ describe("Medical History - Update (doctor only)", () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.entry.diagnosis).toBe("Common cold (resolved)");
+    expect(res.body.data.diagnosis).toBe("Common cold (resolved)");
 
   });
 

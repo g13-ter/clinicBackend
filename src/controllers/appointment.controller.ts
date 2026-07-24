@@ -1,143 +1,127 @@
 import { Request, Response, NextFunction } from "express";
-import Appointment from "../models/appointment.model";
-import { AppError } from "../middleware/error.middleware";
+import { AppointmentService } from "../services/appointment.service";
+import { PatientService } from "../services/patient.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
+import { mailer } from "../services/mailer.service";
+import { sendImmediateReminderIfLateBooking } from "../services/reminder.service";
+import logger from "../utils/logger";
 
+const appointmentService = new AppointmentService();
+const patientService = new PatientService();
 
-// CREATE APPOINTMENT
-export const createAppointment = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// CREATE
+export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const userId = getAuthenticatedUser(req).id;
+    const { patientId, doctorId, appointmentDate, reason, notes } = req.body;
 
-    const {
+    const appointment = await appointmentService.createAppointment({
       patientId,
-      appointmentDate,
-      reason,
-      notes
-    } = req.body;
-
-
-    const createdBy = (req as any).user.id;
-
-
-    const appointment = await Appointment.create({
-      patientId,
+      doctorId,
       appointmentDate,
       reason,
       notes,
-      createdBy
+      createdBy: getAuthenticatedObjectId(req),
     });
 
-
-    res.status(201).json({
-      message: "Appointment created successfully",
-      appointment
+    logAudit({
+      action: "create",
+      resource: "Appointment",
+      resourceId: String(appointment._id),
+      performedBy: userId,
+      after: appointment.toObject(),
+      method: req.method,
+      path: req.originalUrl,
     });
 
-  } catch (error) {
+    res.status(201).json({ success: true, message: "Appointment created successfully", data: appointment });
 
-    next(error);
+    // Fire-and-forget: never let an email failure affect the API response,
+    // which has already been sent above.
+    (async () => {
+      try {
+        const patient = await patientService.getPatientById(patientId);
+        if (!patient.email) return;
 
-  }
-
-};
-
-
-// GET ALL APPOINTMENTS
-export const getAppointments = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const appointments = await Appointment.find()
-      .populate("patientId", "studentId firstName lastName")
-      .populate("createdBy", "name role")
-      .sort({
-        appointmentDate: 1
-      });
-
-
-    res.status(200).json(appointments);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET SINGLE APPOINTMENT
-export const getAppointmentById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const appointment = await Appointment.findById(
-      req.params.id
-    )
-      .populate("patientId", "studentId firstName lastName")
-      .populate("createdBy", "name role");
-
-
-    if (!appointment) {
-      throw new AppError("Appointment not found", 404);
-    }
-
-
-    res.status(200).json(appointment);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// UPDATE APPOINTMENT
-export const updateAppointment = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const appointment = await Appointment.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {
-        new: true,
-        runValidators: true
+        await mailer.sendAppointmentConfirmation({
+          to: patient.email,
+          patientName: `${patient.firstName} ${patient.lastName}`,
+          appointmentDate: appointment.appointmentDate,
+          reason: appointment.reason,
+        });
+      } catch (emailError) {
+        logger.error("Failed to send appointment confirmation email:", emailError);
       }
-    );
 
-    if (!appointment) {
-      throw new AppError("Appointment not found", 404);
-    }
+      // If this appointment was booked too close to its date for the
+      // hourly reminder sweep to ever catch it, send the reminder now.
+      try {
+        await sendImmediateReminderIfLateBooking(String(appointment._id));
+      } catch (reminderError) {
+        logger.error("Failed to send immediate reminder for late-booked appointment:", reminderError);
+      }
+    })();
+  } catch (error) {
+    next(error);
+  }
+};
 
+// GET ALL — read-only, not audit-logged
+export const getAppointments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+
+    const { appointments, total } = await appointmentService.getAppointments(pagination, search);
 
     res.status(200).json({
-      message: "Appointment updated successfully",
-      appointment
+      success: true,
+      message: "Appointments retrieved successfully",
+      data: appointments,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET BY ID — read-only, not audit-logged
+export const getAppointmentById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const appointment = await appointmentService.getAppointmentById(id);
+
+    res.status(200).json({ success: true, message: "Appointment retrieved successfully", data: appointment });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// UPDATE
+export const updateAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await appointmentService.updateAppointment(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
     });
 
+    logAudit({
+      action: "update",
+      resource: "Appointment",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Appointment updated successfully", data: after });
   } catch (error) {
-
     next(error);
-
   }
-
 };

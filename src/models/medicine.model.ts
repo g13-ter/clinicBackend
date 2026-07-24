@@ -2,10 +2,13 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IMedicine extends Document {
   name: string;
+  category?: string;
   quantity: number;
   unit: string;
   expiryDate: Date;
   lowStockThreshold: number;
+  supplier?: string;
+  dateReceived?: Date;
   lastUpdatedBy: mongoose.Types.ObjectId;
 }
 
@@ -14,6 +17,13 @@ const MedicineSchema = new Schema<IMedicine>(
     name: {
       type: String,
       required: true,
+      index: true,
+    },
+
+    // e.g. "Analgesic", "Antibiotic", "First Aid", "PPE" - free text so the
+    // clinic isn't locked into a fixed list of categories.
+    category: {
+      type: String,
     },
 
     quantity: {
@@ -34,6 +44,15 @@ const MedicineSchema = new Schema<IMedicine>(
     lowStockThreshold: {
       type: Number,
       default: 10,
+    },
+
+    supplier: {
+      type: String,
+    },
+
+    dateReceived: {
+      type: Date,
+      default: Date.now,
     },
 
     lastUpdatedBy: {

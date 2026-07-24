@@ -67,7 +67,7 @@ describe("Medicine Inventory - Create (nurse only)", () => {
 
     expect(res.status).toBe(201);
 
-    createdMedicineId = res.body.medicine._id;
+    createdMedicineId = res.body.data._id;
 
   });
 
@@ -116,7 +116,7 @@ describe("Medicine Inventory - Low stock detection", () => {
 
     expect(res.status).toBe(200);
 
-    const found = res.body.find(
+    const found = res.body.data.find(
       (m: any) => m._id === createdMedicineId
     );
 
@@ -134,7 +134,7 @@ describe("Medicine Inventory - Low stock detection", () => {
 
     expect(res.status).toBe(200);
 
-    const found = res.body.find(
+    const found = res.body.data.find(
       (m: any) => m._id === createdMedicineId
     );
 
@@ -156,11 +156,92 @@ describe("Medicine Inventory - Low stock detection", () => {
       .get("/api/medicines")
       .set("Authorization", `Bearer ${nurseToken}`);
 
-    const found = listRes.body.find(
+    const found = listRes.body.data.find(
       (m: any) => m._id === createdMedicineId
     );
 
     expect(found.isLowStock).toBe(false);
+
+  });
+
+});
+
+
+describe("Medicine Inventory - Expiring/Expired", () => {
+
+  let expiredId: string;
+  let expiringSoonId: string;
+  let farFutureId: string;
+
+  beforeAll(async () => {
+
+    const expired = await Medicine.create({
+      name: "TEST Expired Medicine",
+      quantity: 50,
+      unit: "tablets",
+      expiryDate: new Date(Date.now() - 1000 * 60 * 60 * 24),
+      lowStockThreshold: 10,
+    });
+    expiredId = String(expired._id);
+
+    const expiringSoon = await Medicine.create({
+      name: "TEST Expiring Soon Medicine",
+      quantity: 50,
+      unit: "tablets",
+      expiryDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 10),
+      lowStockThreshold: 10,
+    });
+    expiringSoonId = String(expiringSoon._id);
+
+    const farFuture = await Medicine.create({
+      name: "TEST Far Future Medicine",
+      quantity: 50,
+      unit: "tablets",
+      expiryDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+      lowStockThreshold: 10,
+    });
+    farFutureId = String(farFuture._id);
+
+  });
+
+  afterAll(async () => {
+    await Medicine.findByIdAndDelete(expiredId);
+    await Medicine.findByIdAndDelete(expiringSoonId);
+    await Medicine.findByIdAndDelete(farFutureId);
+  });
+
+
+  it("includes expired and expiring-soon medicines in /medicines/expiring", async () => {
+
+    const res = await request(app)
+      .get("/api/medicines/expiring")
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(res.status).toBe(200);
+
+    const ids = res.body.data.map((m: any) => m._id);
+
+    expect(ids).toContain(expiredId);
+    expect(ids).toContain(expiringSoonId);
+    expect(ids).not.toContain(farFutureId);
+
+  });
+
+
+  it("flags isExpired and isExpiringSoon correctly on /medicines", async () => {
+
+    const res = await request(app)
+      .get("/api/medicines?limit=200")
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    const expired = res.body.data.find((m: any) => m._id === expiredId);
+    const expiringSoon = res.body.data.find((m: any) => m._id === expiringSoonId);
+    const farFuture = res.body.data.find((m: any) => m._id === farFutureId);
+
+    expect(expired.isExpired).toBe(true);
+    expect(expiringSoon.isExpiringSoon).toBe(true);
+    expect(farFuture.isExpired).toBe(false);
+    expect(farFuture.isExpiringSoon).toBe(false);
 
   });
 

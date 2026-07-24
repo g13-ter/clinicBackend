@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import logger from "../utils/logger";
 
 
 // Custom error class - lets controllers throw an error with a
@@ -28,11 +29,16 @@ export const errorHandler = (
   next: NextFunction
 ) => {
 
-  // always log the FULL error on the server's terminal,
-  // so we never lose debugging detail
-  console.error(err);
-
   const statusCode = err.statusCode || 500;
+
+  // 4xx errors (validation, access denied, not found) are expected
+  // outcomes of normal use - log them as warnings, not full errors.
+  // 5xx means something actually broke - log the full error + stack.
+  if (statusCode >= 500) {
+    logger.error(err);
+  } else {
+    logger.warn(`${req.method} ${req.originalUrl} -> ${statusCode}: ${err.message}`);
+  }
 
   // the client only ever sees a short, safe message -
   // never raw error objects, stack traces, or internal details

@@ -79,7 +79,7 @@ describe("Patients - Create (nurse only)", () => {
 
     expect(res.status).toBe(201);
 
-    createdPatientId = res.body._id;
+    createdPatientId = res.body.data._id;
 
   });
 
@@ -139,8 +139,8 @@ describe("Patients - View permissions differ by role", () => {
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.contactNumber).toBeDefined();
-    expect(res.body.address).toBeDefined();
+    expect(res.body.data.contactNumber).toBeDefined();
+    expect(res.body.data.address).toBeDefined();
 
   });
 
@@ -152,9 +152,9 @@ describe("Patients - View permissions differ by role", () => {
       .set("Authorization", `Bearer ${staffToken}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
 
-    const found = res.body.find(
+    const found = res.body.data.find(
       (p: any) => p._id === createdPatientId
     );
 
@@ -204,7 +204,7 @@ describe("Patients - Archive instead of delete (admin only)", () => {
       .get("/api/patients")
       .set("Authorization", `Bearer ${nurseToken}`);
 
-    const stillVisible = listRes.body.find(
+    const stillVisible = listRes.body.data.find(
       (p: any) => p._id === createdPatientId
     );
 
@@ -215,7 +215,7 @@ describe("Patients - Archive instead of delete (admin only)", () => {
       .get("/api/patients?includeInactive=true")
       .set("Authorization", `Bearer ${nurseToken}`);
 
-    const stillExists = includeInactiveRes.body.find(
+    const stillExists = includeInactiveRes.body.data.find(
       (p: any) => p._id === createdPatientId
     );
 

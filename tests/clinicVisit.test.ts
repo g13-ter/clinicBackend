@@ -88,10 +88,10 @@ describe("Clinic Visits - Create (nurse only)", () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.visit.bloodPressure).toBe("120/80");
-    expect(res.body.visit.temperature).toBe(37.8);
+    expect(res.body.data.bloodPressure).toBe("120/80");
+    expect(res.body.data.temperature).toBe(37.8);
 
-    createdVisitId = res.body.visit._id;
+    createdVisitId = res.body.data._id;
 
   });
 
@@ -137,8 +137,8 @@ describe("Clinic Visits - View permissions", () => {
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
-    expect(res.body.length).toBeGreaterThan(0);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data.length).toBeGreaterThan(0);
 
   });
 
@@ -182,7 +182,7 @@ describe("Clinic Visits - Archive (admin only)", () => {
       .get(`/api/visits/patient/${testPatientId}`)
       .set("Authorization", `Bearer ${nurseToken}`);
 
-    const stillVisible = listRes.body.find(
+    const stillVisible = listRes.body.data.find(
       (v: any) => v._id === createdVisitId
     );
 

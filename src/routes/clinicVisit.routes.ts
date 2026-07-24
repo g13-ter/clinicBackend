@@ -5,7 +5,8 @@ import {
   getVisitsByPatient,
   getVisitById,
   updateVisit,
-  archiveVisit
+  archiveVisit,
+  getTodayVisitCount
 } from "../controllers/clinicVisit.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -14,6 +15,15 @@ import { validateBody } from "../middleware/validate.middleware";
 import { createVisitSchema, updateVisitSchema } from "../validators/schemas";
 
 const router = express.Router();
+
+
+// Nurse + Doctor + Admin - count of visits recorded today
+router.get(
+  "/today-count",
+  protect,
+  allowRoles("nurse", "doctor", "admin"),
+  getTodayVisitCount
+);
 
 
 // Nurse only - create visit

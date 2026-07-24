@@ -36,11 +36,11 @@ router.get(
 );
 
 
-// Doctor + Nurse - full patient list
+// Doctor + Nurse + Admin - full patient list
 router.get(
   "/",
   protect,
-  allowRoles("doctor", "nurse"),
+  allowRoles("doctor", "nurse", "admin"),
   getPatients
 );
 
@@ -54,11 +54,11 @@ router.get(
 );
 
 
-// Admin only - update basic patient info (not medical data)
+// Nurse only - update basic patient info (not medical data)
 router.put(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("nurse"),
   validateBody(updatePatientSchema),
   updatePatient
 );

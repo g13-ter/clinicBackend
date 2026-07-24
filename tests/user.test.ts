@@ -60,10 +60,10 @@ describe("Users - Admin only access", () => {
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.user.role).toBe("staff");
+    expect(res.body.data.role).toBe("staff");
 
     // remember this so afterAll can clean it up
-    createdUserId = res.body.user._id;
+    createdUserId = res.body.data._id;
 
   });
 
@@ -93,10 +93,10 @@ describe("Users - Admin only access", () => {
       .set("Authorization", `Bearer ${adminToken}`);
 
     expect(res.status).toBe(200);
-    expect(Array.isArray(res.body)).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
 
     // make sure passwords are never sent back, even to an admin
-    expect(res.body[0].password).toBeUndefined();
+    expect(res.body.data[0].password).toBeUndefined();
 
   });
 

@@ -1,177 +1,131 @@
 import { Request, Response, NextFunction } from "express";
-import Patient from "../models/patient.model";
-import { AppError } from "../middleware/error.middleware";
+import { PatientService } from "../services/patient.service";
+import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
+import { logAudit } from "../utils/auditLog";
+import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 
+const patientService = new PatientService();
 
-// CREATE PATIENT
-export const createPatient = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
+// CREATE
+export const createPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-
-    const patient = await Patient.create(req.body);
-
-    res.status(201).json(patient);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET ALL PATIENTS (full info - doctor/nurse)
-export const getPatients = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    // by default only show active patients
-    // pass ?includeInactive=true to see archived ones too
-    const filter =
-      req.query.includeInactive === "true"
-        ? {}
-        : { isActive: true };
-
-    const patients = await Patient.find(filter);
-
-    res.status(200).json(patients);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET PATIENT LIST - BASIC INFO ONLY (for staff)
-export const getPatientsBasic = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const patients = await Patient.find(
-      { isActive: true }
-    ).select(
-      "studentId firstName lastName course yearLevel"
-    );
-
-    res.status(200).json(patients);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// GET PATIENT BY ID
-export const getPatientById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const patient = await Patient.findById(
-      req.params.id
-    );
-
-    if (!patient) {
-      throw new AppError("Patient not found", 404);
-    }
-
-    res.status(200).json(patient);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// UPDATE PATIENT
-export const updatePatient = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const patient =
-      await Patient.findByIdAndUpdate(
-        req.params.id,
-        req.body,
-        {
-          new: true,
-          runValidators: true,
-        }
-      );
-
-    if (!patient) {
-      throw new AppError("Patient not found", 404);
-    }
-
-    res.status(200).json(patient);
-
-  } catch (error) {
-
-    next(error);
-
-  }
-
-};
-
-
-// ARCHIVE PATIENT (soft delete - admin only)
-// We never truly delete patient records, just mark them inactive
-export const archivePatient = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
-
-  try {
-
-    const patient =
-      await Patient.findByIdAndUpdate(
-        req.params.id,
-        { isActive: false },
-        { new: true }
-      );
-
-    if (!patient) {
-      throw new AppError("Patient not found", 404);
-    }
-
-    res.status(200).json({
-      message: "Patient archived successfully",
-      patient,
+    const userId = getAuthenticatedUser(req).id;
+    const patient = await patientService.createPatient({
+      ...req.body,
+      createdBy: getAuthenticatedObjectId(req),
     });
 
+    logAudit({
+      action: "create",
+      resource: "Patient",
+      resourceId: String(patient._id),
+      performedBy: userId,
+      after: patient.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(201).json({ success: true, message: "Patient created successfully", data: patient });
   } catch (error) {
-
     next(error);
-
   }
+};
 
+// GET ALL (doctor/nurse)
+// Read-only list — not audit-logged. The audit trail records creates,
+// updates, and deletes only, not every page load or search.
+export const getPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const includeInactive = req.query.includeInactive === "true";
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+
+    const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
+
+    res.status(200).json({
+      success: true,
+      message: "Patients retrieved successfully",
+      data: patients,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET BASIC LIST (staff)
+// NOTE: not audit-logged - this is a lightweight dropdown/lookup list,
+// hit far more often than a real "view" of patient data, and contains
+// no sensitive info (just name/ID/course). Logging every call here would
+// add a lot of low-value volume to the audit trail.
+export const getPatientsBasic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const patients = await patientService.getPatientsBasic();
+    res.status(200).json({ success: true, message: "Patients retrieved successfully", data: patients });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// GET BY ID — read-only, not audit-logged
+export const getPatientById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const patient = await patientService.getPatientById(id);
+
+    res.status(200).json({ success: true, message: "Patient retrieved successfully", data: patient });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// UPDATE
+export const updatePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await patientService.updatePatient(id, {
+      ...req.body,
+      updatedBy: getAuthenticatedObjectId(req),
+    });
+
+    logAudit({
+      action: "update",
+      resource: "Patient",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Patient updated successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ARCHIVE (soft delete)
+export const archivePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await patientService.archivePatient(id, userId);
+
+    logAudit({
+      action: "delete",
+      resource: "Patient",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Patient archived successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
 };
