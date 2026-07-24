@@ -1,15 +1,16 @@
 import { Request, Response, NextFunction } from "express";
 import { AppointmentService } from "../services/appointment.service";
 import { PatientService } from "../services/patient.service";
+import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { mailer } from "../services/mailer.service";
-import { sendImmediateReminderIfLateBooking } from "../services/reminder.service";
 import logger from "../utils/logger";
 
 const appointmentService = new AppointmentService();
 const patientService = new PatientService();
+const userService = new UserService();
 
 // CREATE
 export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -45,22 +46,21 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
         const patient = await patientService.getPatientById(patientId);
         if (!patient.email) return;
 
+        let doctorName: string | undefined;
+        if (doctorId) {
+          const doctor = await userService.getUserById(doctorId);
+          doctorName = doctor.name;
+        }
+
         await mailer.sendAppointmentConfirmation({
           to: patient.email,
           patientName: `${patient.firstName} ${patient.lastName}`,
           appointmentDate: appointment.appointmentDate,
           reason: appointment.reason,
+          ...(doctorName ? { doctorName } : {}),
         });
       } catch (emailError) {
         logger.error("Failed to send appointment confirmation email:", emailError);
-      }
-
-      // If this appointment was booked too close to its date for the
-      // hourly reminder sweep to ever catch it, send the reminder now.
-      try {
-        await sendImmediateReminderIfLateBooking(String(appointment._id));
-      } catch (reminderError) {
-        logger.error("Failed to send immediate reminder for late-booked appointment:", reminderError);
       }
     })();
   } catch (error) {
@@ -72,9 +72,16 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 export const getAppointments = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const search = req.query.search as string | undefined;
+    const date = req.query.date as string | undefined;
+    const doctorId = req.query.doctorId as string | undefined;
+    const unassignedOnly = req.query.unassignedOnly === "true";
     const pagination = getPaginationParams(req.query);
 
-    const { appointments, total } = await appointmentService.getAppointments(pagination, search);
+    const { appointments, total } = await appointmentService.getAppointments(pagination, search, {
+      date,
+      doctorId,
+      unassignedOnly,
+    });
 
     res.status(200).json({
       success: true,

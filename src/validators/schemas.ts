@@ -67,17 +67,29 @@ export const updateVisitSchema = createVisitSchema.partial().omit({
 
 // ===== MEDICAL HISTORY =====
 
+export const prescribedItemSchema = z.object({
+  medicineId: z.string().min(1, "Medicine ID is required"),
+  quantity: z.number().int().min(1, "Quantity must be at least 1"),
+  instructions: z.string().optional(),
+});
+
 export const createMedicalHistorySchema = z.object({
   patientId: z.string().min(1, "Patient ID is required"),
   diagnosis: z.string().optional(),
   prescription: z.string().optional(),
+  prescribedItems: z.array(prescribedItemSchema).optional(),
   labRequest: z.string().optional(),
   familyHistory: z.string().optional(),
   allergies: z.string().optional()
 });
 
+// prescribedItems is intentionally excluded here: stock validation/deduction
+// (see medicalHistory.service.ts) only happens on CREATE. Allowing it here
+// too would let an update silently rewrite prescribed quantities without
+// touching inventory, leaving the record and the stock out of sync.
 export const updateMedicalHistorySchema = createMedicalHistorySchema.partial().omit({
-  patientId: true
+  patientId: true,
+  prescribedItems: true
 });
 
 

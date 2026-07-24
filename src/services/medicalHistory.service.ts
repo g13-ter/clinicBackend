@@ -1,10 +1,83 @@
-import MedicalHistory, { IMedicalHistory } from "../models/medicalHistory.model";
+import MedicalHistory, { IMedicalHistory, IPrescribedItem } from "../models/medicalHistory.model";
+import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 
+export interface StockChange {
+  medicine: IMedicine;
+  previousQuantity: number;
+}
+
 export class MedicalHistoryService {
-  async createMedicalHistory(data: Partial<IMedicalHistory>): Promise<IMedicalHistory> {
-    return await MedicalHistory.create(data);
+  async createMedicalHistory(
+    data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string }[] }
+  ): Promise<{ entry: IMedicalHistory; stockChanges: StockChange[] }> {
+    const requestedItems = data.prescribedItems ?? [];
+    const stockChanges: StockChange[] = [];
+    const snapshotItems: IPrescribedItem[] = [];
+
+    if (requestedItems.length > 0) {
+      // Validate every line BEFORE touching any stock, so a request that's
+      // only partially fulfillable fails cleanly instead of deducting some
+      // items and rejecting others.
+      const medicinePairs = await Promise.all(
+        requestedItems.map(async (item) => ({
+          requested: item,
+          medicine: await Medicine.findById(item.medicineId),
+        }))
+      );
+
+      for (const pair of medicinePairs) {
+        if (!pair.medicine) {
+          throw new AppError(`Medicine not found: ${pair.requested.medicineId}`, 404);
+        }
+        if (pair.medicine.quantity < pair.requested.quantity) {
+          throw new AppError(
+            `Insufficient stock for "${pair.medicine.name}": ${pair.requested.quantity} requested, only ${pair.medicine.quantity} ${pair.medicine.unit} available`,
+            400
+          );
+        }
+      }
+
+      // All lines validated - now deduct. Each deduction uses an atomic
+      // conditional $inc (quantity: { $gte: requested }) as a second line
+      // of defense against a concurrent request racing us between the
+      // check above and this update; if that race is lost, we fail loudly
+      // rather than silently allowing negative stock.
+      for (const pair of medicinePairs) {
+        const { requested } = pair;
+        const medicineBefore = pair.medicine as IMedicine;
+
+        const updated = await Medicine.findOneAndUpdate(
+          { _id: requested.medicineId, quantity: { $gte: requested.quantity } },
+          { $inc: { quantity: -requested.quantity } },
+          { new: true }
+        );
+
+        if (!updated) {
+          throw new AppError(
+            `Stock for "${medicineBefore.name}" changed before this prescription could be completed - please try again`,
+            409
+          );
+        }
+
+        stockChanges.push({ medicine: updated, previousQuantity: medicineBefore.quantity });
+        snapshotItems.push({
+          medicineId: updated._id as any,
+          medicineName: medicineBefore.name,
+          quantity: requested.quantity,
+          unit: medicineBefore.unit,
+          ...(requested.instructions ? { instructions: requested.instructions } : {}),
+        });
+      }
+    }
+
+    const entry = await MedicalHistory.create({
+      ...data,
+      ...(snapshotItems.length > 0 ? { prescribedItems: snapshotItems } : {}),
+    });
+
+    return { entry, stockChanges };
   }
 
   async getHistoryByPatient(

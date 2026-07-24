@@ -10,7 +10,8 @@ export class AppointmentService {
 
   async getAppointments(
     { limit, skip }: PaginationParams,
-    search?: string
+    search?: string,
+    filters?: { date?: string | undefined; doctorId?: string | undefined; unassignedOnly?: boolean | undefined }
   ): Promise<{ appointments: IAppointment[]; total: number }> {
     const filter: any = {};
 
@@ -18,9 +19,29 @@ export class AppointmentService {
       filter.reason = { $regex: escapeRegex(search), $options: "i" };
     }
 
+    // ?date=YYYY-MM-DD - restricts to that single calendar day (server's
+    // local time zone). Used for the doctor's "Today's Patients" view.
+    if (filters?.date) {
+      const dayStart = new Date(filters.date);
+      if (isNaN(dayStart.getTime())) {
+        throw new AppError("date must be a valid date (YYYY-MM-DD)", 400);
+      }
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setHours(23, 59, 59, 999);
+      filter.appointmentDate = { $gte: dayStart, $lte: dayEnd };
+    }
+
+    if (filters?.unassignedOnly) {
+      filter.doctorId = { $exists: false };
+    } else if (filters?.doctorId) {
+      filter.doctorId = filters.doctorId;
+    }
+
     const [appointments, total] = await Promise.all([
       Appointment.find(filter)
         .populate("patientId", "studentId firstName lastName")
+        .populate("doctorId", "name role")
         .populate("createdBy", "name role")
         .populate("updatedBy", "name role")
         .sort({ appointmentDate: 1 })
@@ -35,6 +56,7 @@ export class AppointmentService {
   async getAppointmentById(id: string): Promise<IAppointment> {
     const appointment = await Appointment.findById(id)
       .populate("patientId", "studentId firstName lastName")
+      .populate("doctorId", "name role")
       .populate("createdBy", "name role")
       .populate("updatedBy", "name role");
 
