@@ -60,7 +60,8 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 // add a lot of low-value volume to the audit trail.
 export const getPatientsBasic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const patients = await patientService.getPatientsBasic();
+    const search = req.query.search as string | undefined;
+    const patients = await patientService.getPatientsBasic(search);
     res.status(200).json({ success: true, message: "Patients retrieved successfully", data: patients });
   } catch (error) {
     next(error);

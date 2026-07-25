@@ -89,6 +89,37 @@ export class ClinicVisitService {
     return { before, after };
   }
 
+  // All currently open (not-yet-archived) visits, across every patient -
+  // this is the nurse's clinic-wide "who's here right now" view, as
+  // opposed to getVisitsByPatient's per-patient history. Sorted oldest
+  // first, so the queue reads top-to-bottom in arrival order (FIFO).
+  async getQueue(): Promise<IClinicVisit[]> {
+    return await ClinicVisit.find({ isActive: true })
+      .populate("patientId", "studentId firstName lastName")
+      .populate("recordedBy", "name role")
+      .sort({ visitDate: 1 });
+  }
+
+  async markReadyForDoctor(id: string, updatedBy: string): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
+    const before = await ClinicVisit.findById(id);
+
+    if (!before) {
+      throw new AppError("Clinic visit not found", 404);
+    }
+
+    const after = await ClinicVisit.findByIdAndUpdate(
+      id,
+      { readyForDoctor: true, updatedBy },
+      { returnDocument: "after" }
+    );
+
+    if (!after) {
+      throw new AppError("Clinic visit not found", 404);
+    }
+
+    return { before, after };
+  }
+
   async getTodayCount(): Promise<number> {
     const start = new Date();
     start.setHours(0, 0, 0, 0);

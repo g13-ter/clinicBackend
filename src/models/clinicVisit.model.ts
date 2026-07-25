@@ -9,6 +9,12 @@ export interface IClinicVisit extends Document {
   bloodPressure: string;
   temperature: number;
   pulseRate: number;
+  // Set by the nurse once vitals/triage are done and the patient is ready
+  // to see the doctor. Distinguishes "waiting for triage" from "waiting
+  // for doctor" within the set of still-open (isActive: true) visits -
+  // isActive itself just means "not yet archived", it doesn't track where
+  // in the process a visit currently is.
+  readyForDoctor: boolean;
   recordedBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
   isActive: boolean;
@@ -51,6 +57,11 @@ const ClinicVisitSchema = new Schema<IClinicVisit>(
 
     pulseRate: {
       type: Number,
+    },
+
+    readyForDoctor: {
+      type: Boolean,
+      default: false,
     },
 
     recordedBy: {

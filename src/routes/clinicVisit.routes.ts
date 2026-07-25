@@ -6,7 +6,9 @@ import {
   getVisitById,
   updateVisit,
   archiveVisit,
-  getTodayVisitCount
+  getTodayVisitCount,
+  getQueue,
+  markReadyForDoctor
 } from "../controllers/clinicVisit.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -23,6 +25,16 @@ router.get(
   protect,
   allowRoles("nurse", "doctor", "admin"),
   getTodayVisitCount
+);
+
+
+// Nurse + Doctor + Admin - clinic-wide "who's here right now" queue.
+// Must come before "/:id" so "queue" isn't swallowed as an :id param.
+router.get(
+  "/queue",
+  protect,
+  allowRoles("nurse", "doctor", "admin"),
+  getQueue
 );
 
 
@@ -61,6 +73,15 @@ router.put(
   allowRoles("nurse"),
   validateBody(updateVisitSchema),
   updateVisit
+);
+
+
+// Nurse only - mark a patient ready for the doctor after triage/vitals
+router.put(
+  "/:id/ready",
+  protect,
+  allowRoles("nurse"),
+  markReadyForDoctor
 );
 
 

@@ -36,8 +36,19 @@ export class PatientService {
     return { patients, total };
   }
 
-  async getPatientsBasic(): Promise<IPatient[]> {
-    return await Patient.find({ isActive: true }).select(
+  async getPatientsBasic(search?: string): Promise<IPatient[]> {
+    const filter: any = { isActive: true };
+
+    if (search) {
+      const safeSearch = escapeRegex(search);
+      filter.$or = [
+        { firstName: { $regex: safeSearch, $options: "i" } },
+        { lastName: { $regex: safeSearch, $options: "i" } },
+        { studentId: { $regex: safeSearch, $options: "i" } },
+      ];
+    }
+
+    return await Patient.find(filter).select(
       "studentId firstName lastName course yearLevel"
     );
   }

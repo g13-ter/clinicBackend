@@ -16,6 +16,40 @@ export const getTodayVisitCount = async (req: Request, res: Response, next: Next
   }
 };
 
+// GET QUEUE — clinic-wide list of currently open visits, not audit-logged
+export const getQueue = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const queue = await clinicVisitService.getQueue();
+    res.status(200).json({ success: true, message: "Patient queue retrieved successfully", data: queue });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// MARK READY FOR DOCTOR — nurse signals triage/vitals are done
+export const markReadyForDoctor = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await clinicVisitService.markReadyForDoctor(id, userId);
+
+    logAudit({
+      action: "update",
+      resource: "ClinicVisit",
+      resourceId: id,
+      performedBy: userId,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Patient marked ready for doctor", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // CREATE
 export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
