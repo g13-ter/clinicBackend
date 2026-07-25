@@ -49,6 +49,17 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction):
   }
 };
 
+// GET DOCTORS — read-only, not audit-logged. Used to populate the "select
+// a doctor" step on appointment booking, and admin's doctor-schedule view.
+export const getDoctors = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const doctors = await userService.getDoctors();
+    res.status(200).json({ success: true, message: "Doctors retrieved successfully", data: doctors });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // GET BY ID — read-only, not audit-logged
 export const getUserById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
