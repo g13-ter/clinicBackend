@@ -28,10 +28,15 @@ export const validateEnv = (): void => {
     process.exit(1);
   }
 
-  // These are optional, not required - the app runs fine without them
-  // (emails are skipped/logged instead of sent, and the internal
-  // reminder-sweep route stays locked). But it's easy to forget to set
-  // them, so warn loudly in production rather than silently no-op.
+  if (
+    process.env.MONGO_TRANSACTIONS_ENABLED &&
+    !["true", "false"].includes(process.env.MONGO_TRANSACTIONS_ENABLED)
+  ) {
+    logger.error("FATAL ERROR: MONGO_TRANSACTIONS_ENABLED must be either true or false.");
+    process.exit(1);
+  }
+
+  // Warn when optional production integrations are disabled.
   if (process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
     logger.warn(
       "RESEND_API_KEY is not set — appointment confirmation/reminder and inventory " +

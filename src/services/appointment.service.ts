@@ -2,9 +2,25 @@ import Appointment, { IAppointment } from "../models/appointment.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { escapeRegex } from "../utils/regex";
+import type { UserRole } from "../types/roles";
+import ClinicVisit, { IClinicVisit } from "../models/clinicVisit.model";
+import { Types } from "mongoose";
+
+const isDuplicateKeyError = (error: unknown): error is { code: number } =>
+  typeof error === "object" &&
+  error !== null &&
+  "code" in error &&
+  error.code === 11000;
+
+interface AppointmentListFilter {
+  reason?: { $regex: string; $options: "i" };
+  appointmentDate?: { $gte: Date; $lte: Date };
+  doctorId?: string | { $exists: false };
+}
 
 export class AppointmentService {
   async createAppointment(data: Partial<IAppointment>): Promise<IAppointment> {
+    await this.assertNoDoctorConflict(data.doctorId, data.appointmentDate, data.durationMinutes);
     return await Appointment.create(data);
   }
 
@@ -13,14 +29,13 @@ export class AppointmentService {
     search?: string,
     filters?: { date?: string | undefined; doctorId?: string | undefined; unassignedOnly?: boolean | undefined }
   ): Promise<{ appointments: IAppointment[]; total: number }> {
-    const filter: any = {};
+    const filter: AppointmentListFilter = {};
 
     if (search) {
       filter.reason = { $regex: escapeRegex(search), $options: "i" };
     }
 
-    // ?date=YYYY-MM-DD - restricts to that single calendar day (server's
-    // local time zone). Used for the doctor's "Today's Patients" view.
+    // Restrict results to one local calendar day.
     if (filters?.date) {
       const dayStart = new Date(filters.date);
       if (isNaN(dayStart.getTime())) {
@@ -74,6 +89,14 @@ export class AppointmentService {
       throw new AppError("Appointment not found", 404);
     }
 
+    await this.assertNoDoctorConflict(
+      data.doctorId === undefined ? before.doctorId : data.doctorId,
+      data.appointmentDate === undefined ? before.appointmentDate : data.appointmentDate,
+      data.durationMinutes === undefined ? before.durationMinutes : data.durationMinutes,
+      id,
+      data.status === undefined ? before.status : data.status,
+    );
+
     const after = await Appointment.findByIdAndUpdate(id, data, {
       returnDocument: "after",
       runValidators: true,
@@ -84,5 +107,122 @@ export class AppointmentService {
     }
 
     return { before, after };
+  }
+
+  async completeAppointment(
+    id: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<{ before: IAppointment; after: IAppointment }> {
+    const before = await Appointment.findById(id);
+    if (!before) throw new AppError("Appointment not found", 404);
+
+    if (
+      role === "doctor" &&
+      before.doctorId &&
+      String(before.doctorId) !== userId
+    ) {
+      throw new AppError("You can only complete your own appointments", 403);
+    }
+
+    const after = await Appointment.findByIdAndUpdate(
+      id,
+      {
+        status: "completed",
+        updatedBy: userId,
+        ...(role === "doctor" && !before.doctorId ? { doctorId: userId } : {}),
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Appointment not found", 404);
+    return { before, after };
+  }
+
+  async checkInAppointment(
+    id: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<{ appointment: IAppointment; visit: IClinicVisit; created: boolean }> {
+    const appointment = await Appointment.findById(id);
+    if (!appointment) throw new AppError("Appointment not found", 404);
+    if (appointment.status === "cancelled" || appointment.status === "completed") {
+      throw new AppError("Only active appointments can be checked in", 409);
+    }
+    if (
+      role === "doctor" &&
+      (!appointment.doctorId || String(appointment.doctorId) !== userId)
+    ) {
+      throw new AppError("You can only start your assigned appointments", 403);
+    }
+
+    if (appointment.visitId) {
+      const linkedVisit = await ClinicVisit.findById(appointment.visitId);
+      if (linkedVisit) return { appointment, visit: linkedVisit, created: false };
+    }
+
+    const existingVisit = await ClinicVisit.findOne({ appointmentId: appointment._id });
+    if (existingVisit) {
+      appointment.visitId = new Types.ObjectId(String(existingVisit._id));
+      appointment.checkedInAt ??= new Date();
+      appointment.status = "checked_in";
+      appointment.updatedBy = new Types.ObjectId(userId);
+      await appointment.save();
+      return { appointment, visit: existingVisit, created: false };
+    }
+
+    try {
+      const visit = new ClinicVisit({
+        patientId: appointment.patientId,
+        appointmentId: appointment._id,
+        ...(appointment.doctorId ? { assignedDoctorId: appointment.doctorId } : {}),
+        complaint: appointment.reason,
+        notes: appointment.notes,
+        status: "triage",
+        recordedBy: userId,
+      });
+      await visit.save();
+      appointment.visitId = new Types.ObjectId(String(visit._id));
+      appointment.checkedInAt = new Date();
+      appointment.status = "checked_in";
+      appointment.updatedBy = new Types.ObjectId(userId);
+      await appointment.save();
+      return { appointment, visit, created: true };
+    } catch (error: unknown) {
+      if (!isDuplicateKeyError(error)) throw error;
+      const visit = await ClinicVisit.findOne({ appointmentId: appointment._id });
+      if (!visit) throw error;
+      appointment.visitId = new Types.ObjectId(String(visit._id));
+      appointment.checkedInAt ??= new Date();
+      appointment.status = "checked_in";
+      appointment.updatedBy = new Types.ObjectId(userId);
+      await appointment.save();
+      return { appointment, visit, created: false };
+    }
+  }
+
+  private async assertNoDoctorConflict(
+    doctorId: IAppointment["doctorId"] | undefined,
+    appointmentDate: Date | undefined,
+    durationMinutes = 30,
+    excludeId?: string,
+    status = "pending",
+  ): Promise<void> {
+    if (!doctorId || !appointmentDate || status === "cancelled") return;
+    const start = new Date(appointmentDate);
+    const end = new Date(start.getTime() + durationMinutes * 60_000);
+    const windowStart = new Date(start.getTime() - 8 * 60 * 60_000);
+    const windowEnd = new Date(end.getTime() + 8 * 60 * 60_000);
+    const appointments = await Appointment.find({
+      doctorId,
+      appointmentDate: { $gte: windowStart, $lte: windowEnd },
+      status: { $ne: "cancelled" },
+      ...(excludeId ? { _id: { $ne: excludeId } } : {}),
+    });
+    const conflicts = appointments.some((item) => {
+      const itemStart = new Date(item.appointmentDate);
+      const itemEnd = new Date(itemStart.getTime() + (item.durationMinutes ?? 30) * 60_000);
+      return start < itemEnd && itemStart < end;
+    });
+    if (conflicts) throw new AppError("Doctor already has an overlapping appointment", 409);
   }
 }

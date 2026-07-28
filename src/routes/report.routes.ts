@@ -1,17 +1,23 @@
 import express from "express";
-import { getClinicSummaryReport } from "../controllers/report.controller";
+import { exportReportCsv, getClinicSummaryReport } from "../controllers/report.controller";
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
 
-// Admin only - this report is meant for the school board/administration,
-// not for general staff use.
+// Nurse prepares the clinic report; admin may also generate it for review.
 router.get(
   "/clinic-summary",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "nurse"),
   getClinicSummaryReport
+);
+
+router.get(
+  "/export/:type",
+  protect,
+  allowRoles("admin", "nurse"),
+  exportReportCsv,
 );
 
 export default router;

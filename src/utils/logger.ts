@@ -1,21 +1,6 @@
 import winston from "winston";
 
-// Centralized logger for the whole app. Replaces scattered
-// console.log/console.error calls with structured, leveled logs
-// that include a timestamp.
-//
-// Console-only on purpose: this app runs on Railway, whose
-// filesystem is ephemeral (anything written to disk disappears on
-// every redeploy/restart). Railway captures stdout/stderr directly
-// and shows it in its own Logs tab, so writing to local log files
-// would just waste disk I/O for no benefit. If this ever moves to
-// a host with a persistent filesystem, file transports can be
-// added back here.
-//
-// Log levels used in this app, from most to least severe:
-//   error - something broke (DB connection failed, unhandled request error)
-//   warn  - unexpected but recoverable (not used much yet, room to grow)
-//   info  - normal lifecycle events (server started, DB connected)
+// Railway captures stdout/stderr, so file transports are unnecessary.
 
 const isProduction = process.env.NODE_ENV === "production";
 

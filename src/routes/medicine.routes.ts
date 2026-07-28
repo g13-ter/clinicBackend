@@ -12,7 +12,8 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createMedicineSchema, updateMedicineSchema } from "../validators/schemas";
+import { createMedicineSchema, createInventoryBatchSchema, updateMedicineSchema } from "../validators/schemas";
+import { createInventoryBatch, getInventoryBatches } from "../controllers/inventoryBatch.controller";
 
 const router = express.Router();
 
@@ -31,7 +32,7 @@ router.post(
 router.get(
   "/low-stock",
   protect,
-  allowRoles("nurse", "doctor", "admin"),
+  allowRoles("nurse", "doctor", "admin", "staff"),
   getLowStockMedicines
 );
 
@@ -40,16 +41,19 @@ router.get(
 router.get(
   "/expiring",
   protect,
-  allowRoles("nurse", "doctor", "admin"),
+  allowRoles("nurse", "doctor", "admin", "staff"),
   getExpiringMedicines
 );
+
+router.post("/:id/batches", protect, allowRoles("nurse"), validateBody(createInventoryBatchSchema), createInventoryBatch);
+router.get("/:id/batches", protect, allowRoles("nurse", "doctor", "admin", "staff"), getInventoryBatches);
 
 
 // Nurse + Doctor - view all medicines
 router.get(
   "/",
   protect,
-  allowRoles("admin","nurse", "doctor"),
+  allowRoles("admin", "nurse", "doctor", "staff"),
   getMedicines
 );
 
@@ -58,7 +62,7 @@ router.get(
 router.get(
   "/:id",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("nurse", "doctor", "staff"),
   getMedicineById
 );
 

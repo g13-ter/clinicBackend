@@ -1,11 +1,7 @@
 import { Resend } from "resend";
 import logger from "../utils/logger";
 
-// RESEND_API_KEY is optional. If it's not set (e.g. local dev, or a
-// deployment that hasn't wired up email yet), every send* call below
-// logs what WOULD have been sent and returns successfully instead of
-// throwing - so the rest of the app (appointments, inventory, purchase
-// requests) keeps working exactly as before with email simply "off".
+// Log emails instead of sending when RESEND_API_KEY is unset.
 
 interface SendEmailParams {
   to: string;
@@ -13,19 +9,32 @@ interface SendEmailParams {
   html: string;
 }
 
-// Every email in this app goes through this one function, fire-and-forget
-// style from the caller's perspective - callers should NOT await this in
-// a way that blocks the HTTP response, and should never let an email
-// failure turn into a failed API request (booking an appointment must
-// still succeed even if the confirmation email fails to send).
-const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<void> => {
+// Email delivery must not block or fail API requests.
+const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolean> => {
+  if (process.env.NODE_ENV === "test") return true;
+
   const resendApiKey = process.env.RESEND_API_KEY;
   const fromAddress =
     process.env.EMAIL_FROM || "School Clinic <onboarding@resend.dev>";
+  const configuredTestRecipient = process.env.EMAIL_TEST_RECIPIENT?.trim();
+  const redirectForDevelopment =
+    process.env.NODE_ENV !== "production" && Boolean(configuredTestRecipient);
+  const deliveryRecipient = redirectForDevelopment
+    ? configuredTestRecipient as string
+    : to;
+  const deliveryHtml = redirectForDevelopment
+    ? `
+      <div style="margin-bottom: 16px; border: 1px solid #f59e0b; background: #fffbeb; padding: 12px; border-radius: 6px;">
+        <strong>Development email preview</strong><br />
+        Intended recipient: ${to}
+      </div>
+      ${html}
+    `
+    : html;
 
   if (!resendApiKey) {
     logger.error("[mailer] RESEND_API_KEY not found.");
-    return;
+    return false;
   }
 
   const resend = new Resend(resendApiKey);
@@ -33,28 +42,34 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<void> 
   try {
     const { error } = await resend.emails.send({
       from: fromAddress,
-      to,
-      subject,
-      html,
+      to: deliveryRecipient,
+      subject: redirectForDevelopment ? `[TEST] ${subject}` : subject,
+      html: deliveryHtml,
     });
 
     if (error) {
       logger.error("[mailer] Resend error:", error);
-      return;
+      return false;
     }
 
-    logger.info(`[mailer] Email sent successfully to ${to}`);
+    logger.info(
+      redirectForDevelopment
+        ? `[mailer] Development email for ${to} redirected to ${deliveryRecipient}`
+        : `[mailer] Email sent successfully to ${to}`,
+    );
+    return true;
   } catch (error) {
     logger.error("[mailer] Failed to send email:", error);
+    return false;
   }
 };
 
-// Shared wrapper: wraps date formatting once so every template renders
-// dates/times consistently.
+// Display clinic times consistently, regardless of the server location.
 const formatDateTime = (date: Date): string =>
   new Date(date).toLocaleString("en-US", {
     dateStyle: "full",
     timeStyle: "short",
+    timeZone: process.env.CLINIC_TIME_ZONE || "Asia/Manila",
   });
 
 const emailWrapper = (title: string, bodyHtml: string): string => `
@@ -76,7 +91,7 @@ export const mailer = {
     appointmentDate: Date;
     doctorName?: string;
     reason: string;
-  }): Promise<void> =>
+  }): Promise<boolean> =>
     sendEmail({
       to: params.to,
       subject: "Appointment Confirmed - School Clinic",
@@ -100,19 +115,20 @@ export const mailer = {
     patientName: string;
     appointmentDate: Date;
     doctorName?: string;
-  }): Promise<void> =>
+  }): Promise<boolean> =>
     sendEmail({
       to: params.to,
-      subject: "Reminder: Appointment Tomorrow - School Clinic",
+      subject: "Reminder: Upcoming School Clinic Appointment",
       html: emailWrapper(
-        "Your appointment is tomorrow",
+        "Your appointment is coming up",
         `
           <p>Hi ${params.patientName},</p>
-          <p>This is a reminder that you have a clinic appointment coming up:</p>
+          <p>This is your scheduled reminder for an upcoming clinic appointment:</p>
           <ul>
             <li><strong>Date &amp; time:</strong> ${formatDateTime(params.appointmentDate)}</li>
             ${params.doctorName ? `<li><strong>Doctor:</strong> ${params.doctorName}</li>` : ""}
           </ul>
+          <p>Please arrive a few minutes early.</p>
         `
       ),
     }),
@@ -123,7 +139,7 @@ export const mailer = {
     quantity: number;
     unit: string;
     status: string;
-  }): Promise<void> =>
+  }): Promise<boolean> =>
     sendEmail({
       to: params.to,
       subject: `Inventory Alert: ${params.itemName} is ${params.status}`,
@@ -143,7 +159,7 @@ export const mailer = {
     quantityRequested: number;
     requestedByName: string;
     reason: string;
-  }): Promise<void> =>
+  }): Promise<boolean> =>
     sendEmail({
       to: params.to,
       subject: `Purchase Request Pending Review: ${params.itemName}`,

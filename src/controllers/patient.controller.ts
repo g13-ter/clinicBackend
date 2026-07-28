@@ -3,15 +3,51 @@ import { PatientService } from "../services/patient.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
+import type { IPatient } from "../models/patient.model";
 
 const patientService = new PatientService();
+
+const STAFF_PATIENT_FIELDS = [
+  "studentId",
+  "firstName",
+  "lastName",
+  "age",
+  "gender",
+  "course",
+  "yearLevel",
+  "contactNumber",
+  "email",
+  "address",
+  "dateOfBirth",
+  "guardianName",
+  "guardianContactNumber",
+] as const;
+
+const staffPatientPayload = (body: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    STAFF_PATIENT_FIELDS
+      .filter((field) => body[field] !== undefined)
+      .map((field) => [field, body[field]]),
+  );
+
+const toStaffPatient = (patient: IPatient) => {
+  const source = patient.toObject();
+  const {
+    _id, studentId, firstName, lastName, age, gender, course, yearLevel,
+    contactNumber, email, address, dateOfBirth, guardianName,
+    guardianContactNumber, isActive,
+  } = source;
+  return { _id, studentId, firstName, lastName, age, gender, course, yearLevel, contactNumber, email, address, dateOfBirth, guardianName, guardianContactNumber, isActive };
+};
 
 // CREATE
 export const createPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = getAuthenticatedUser(req).id;
+    const authenticatedUser = getAuthenticatedUser(req);
+    const userId = authenticatedUser.id;
+    const submitted = req.body as Record<string, unknown>;
     const patient = await patientService.createPatient({
-      ...req.body,
+      ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       createdBy: getAuthenticatedObjectId(req),
     });
 
@@ -25,15 +61,13 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
       path: req.originalUrl,
     });
 
-    res.status(201).json({ success: true, message: "Patient created successfully", data: patient });
+    res.status(201).json({ success: true, message: "Student created successfully", data: patient });
   } catch (error) {
     next(error);
   }
 };
 
-// GET ALL (doctor/nurse)
-// Read-only list — not audit-logged. The audit trail records creates,
-// updates, and deletes only, not every page load or search.
+// GET ALL — read-only, not audit-logged
 export const getPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const includeInactive = req.query.includeInactive === "true";
@@ -42,10 +76,11 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 
     const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
 
+    const isStaff = getAuthenticatedUser(req).role === "staff";
     res.status(200).json({
       success: true,
-      message: "Patients retrieved successfully",
-      data: patients,
+      message: "Students retrieved successfully",
+      data: isStaff ? patients.map(toStaffPatient) : patients,
       pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
     });
   } catch (error) {
@@ -53,16 +88,12 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
   }
 };
 
-// GET BASIC LIST (staff)
-// NOTE: not audit-logged - this is a lightweight dropdown/lookup list,
-// hit far more often than a real "view" of patient data, and contains
-// no sensitive info (just name/ID/course). Logging every call here would
-// add a lot of low-value volume to the audit trail.
+// GET BASIC LIST — non-sensitive lookup, not audit-logged
 export const getPatientsBasic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const search = req.query.search as string | undefined;
     const patients = await patientService.getPatientsBasic(search);
-    res.status(200).json({ success: true, message: "Patients retrieved successfully", data: patients });
+    res.status(200).json({ success: true, message: "Students retrieved successfully", data: patients });
   } catch (error) {
     next(error);
   }
@@ -74,7 +105,8 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
     const id = req.params.id as string;
     const patient = await patientService.getPatientById(id);
 
-    res.status(200).json({ success: true, message: "Patient retrieved successfully", data: patient });
+    const isStaff = getAuthenticatedUser(req).role === "staff";
+    res.status(200).json({ success: true, message: "Student retrieved successfully", data: isStaff ? toStaffPatient(patient) : patient });
   } catch (error) {
     next(error);
   }
@@ -84,9 +116,11 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
 export const updatePatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = getAuthenticatedUser(req).id;
+    const authenticatedUser = getAuthenticatedUser(req);
+    const userId = authenticatedUser.id;
+    const submitted = req.body as Record<string, unknown>;
     const { before, after } = await patientService.updatePatient(id, {
-      ...req.body,
+      ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       updatedBy: getAuthenticatedObjectId(req),
     });
 
@@ -101,7 +135,7 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Patient updated successfully", data: after });
+    res.status(200).json({ success: true, message: "Student updated successfully", data: after });
   } catch (error) {
     next(error);
   }
@@ -125,7 +159,61 @@ export const archivePatient = async (req: Request, res: Response, next: NextFunc
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Patient archived successfully", data: after });
+    res.status(200).json({ success: true, message: "Student archived successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const importPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const students = req.body.students as Partial<IPatient>[];
+    const safeStudents = user.role === "staff"
+      ? students.map((student) => staffPatientPayload(student as unknown as Record<string, unknown>) as Partial<IPatient>)
+      : students;
+    const result = await patientService.importPatients(safeStudents, getAuthenticatedObjectId(req));
+    await logAudit({
+      action: "create",
+      resource: "PatientImport",
+      resourceId: `batch-${Date.now()}`,
+      performedBy: user.id,
+      after: result,
+      method: req.method,
+      path: req.originalUrl,
+    });
+    res.status(201).json({
+      success: true,
+      message: `${result.created} students imported${result.duplicates.length ? `; ${result.duplicates.length} duplicates skipped` : ""}`,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const advanceStudentSchoolYear = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const result = await patientService.advanceSchoolYear(
+      req.body.schoolYear,
+      req.body.graduatingYearLevel,
+      getAuthenticatedObjectId(req),
+    );
+    await logAudit({
+      action: "update",
+      resource: "StudentSchoolYear",
+      resourceId: req.body.schoolYear,
+      performedBy: user.id,
+      after: result,
+      method: req.method,
+      path: req.originalUrl,
+    });
+    res.status(200).json({
+      success: true,
+      message: `${result.promoted} students promoted and ${result.graduated} students graduated`,
+      data: result,
+    });
   } catch (error) {
     next(error);
   }

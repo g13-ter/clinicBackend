@@ -70,7 +70,7 @@ afterAll(async () => {
 });
 
 
-describe("Clinic Visits - Create (nurse only)", () => {
+describe("Clinic Visits - Create (clinical roles)", () => {
 
   it("allows a NURSE to log a visit with vitals", async () => {
 
@@ -96,17 +96,19 @@ describe("Clinic Visits - Create (nurse only)", () => {
   });
 
 
-  it("blocks a DOCTOR from creating a visit (view only role)", async () => {
+  it("allows a DOCTOR to start a consultation", async () => {
 
     const res = await request(app)
       .post("/api/visits")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
         patientId: testPatientId,
-        complaint: "Should not be allowed"
+        complaint: "Doctor consultation"
       });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(201);
+    expect(res.body.data.recordedBy).toBe(doctorId);
+    await ClinicVisit.findByIdAndDelete(res.body.data._id);
 
   });
 
@@ -157,6 +159,25 @@ describe("Clinic Visits - View permissions", () => {
 
 
 describe("Clinic Visits - Archive (admin only)", () => {
+
+  it("allows a doctor to record a referral with its required details", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "referred", referralFacility: "City Hospital", referralReason: "Further assessment" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("referred");
+  });
+
+  it("rejects a referral without facility and reason", async () => {
+    const visit = await ClinicVisit.create({ patientId: testPatientId, complaint: "TEST referral validation", recordedBy: nurseId });
+    const res = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "referred" });
+    expect(res.status).toBe(400);
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
 
   it("blocks a NURSE from archiving a visit", async () => {
 

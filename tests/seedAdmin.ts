@@ -1,13 +1,4 @@
-// One-time script to create the very first admin account.
-// Run this once with: npx ts-node tests/seedAdmin.ts
-//
-// By default, creates admin@clinic.com / admin123 for local dev.
-// Before running this against a real/production database, set
-// SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD as env vars instead -
-// a hardcoded admin password is fine for local testing, but should
-// never be the real login for a deployed system.
-//
-// (Not part of the test suite - just a setup helper.)
+// One-time admin setup helper. Configure credentials outside local development.
 
 import mongoose from "mongoose";
 import dotenv from "dotenv";

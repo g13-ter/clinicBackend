@@ -2,6 +2,8 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IClinicVisit extends Document {
   patientId: mongoose.Types.ObjectId;
+  appointmentId?: mongoose.Types.ObjectId;
+  assignedDoctorId?: mongoose.Types.ObjectId;
   complaint: string;
   treatment: string;
   notes: string;
@@ -9,12 +11,26 @@ export interface IClinicVisit extends Document {
   bloodPressure: string;
   temperature: number;
   pulseRate: number;
-  // Set by the nurse once vitals/triage are done and the patient is ready
-  // to see the doctor. Distinguishes "waiting for triage" from "waiting
-  // for doctor" within the set of still-open (isActive: true) visits -
-  // isActive itself just means "not yet archived", it doesn't track where
-  // in the process a visit currently is.
+  // Distinguishes patients awaiting triage from those ready for a doctor.
   readyForDoctor: boolean;
+  status: "triage" | "ready_for_doctor" | "in_consultation" | "paused" | "completed" | "cancelled" | "referred";
+  referralFacility?: string;
+  referralReason?: string;
+  referralOutcome?: string;
+  isEmergency: boolean;
+  emergencyDetails?: string;
+  guardianNotifiedAt?: Date;
+  closedAt?: Date;
+  closureOutcome?: "returned_to_class" | "sent_home" | "guardian_pickup" | "referred" | "cancelled" | "physician_consultation";
+  respiratoryRate?: number;
+  heightCm?: number;
+  weightKg?: number;
+  bmi?: number;
+  nursingAssessment?: string;
+  consultationFindings?: string;
+  nursingInterventions?: string;
+  nursingRecommendations?: string;
+  clinicProtocolReference?: string;
   recordedBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
   isActive: boolean;
@@ -63,6 +79,46 @@ const ClinicVisitSchema = new Schema<IClinicVisit>(
       type: Boolean,
       default: false,
     },
+
+    appointmentId: {
+      type: Schema.Types.ObjectId,
+      ref: "Appointment",
+      unique: true,
+      sparse: true,
+    },
+
+    assignedDoctorId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
+
+    status: {
+      type: String,
+      enum: ["triage", "ready_for_doctor", "in_consultation", "paused", "completed", "cancelled", "referred"],
+      default: "triage",
+      index: true,
+    },
+    referralFacility: String,
+    referralReason: String,
+    referralOutcome: String,
+    isEmergency: { type: Boolean, default: false },
+    emergencyDetails: String,
+    guardianNotifiedAt: Date,
+    closedAt: Date,
+    closureOutcome: {
+      type: String,
+      enum: ["returned_to_class", "sent_home", "guardian_pickup", "referred", "cancelled", "physician_consultation"],
+    },
+    respiratoryRate: Number,
+    heightCm: Number,
+    weightKg: Number,
+    bmi: Number,
+    nursingAssessment: String,
+    consultationFindings: String,
+    nursingInterventions: String,
+    nursingRecommendations: String,
+    clinicProtocolReference: String,
 
     recordedBy: {
       type: Schema.Types.ObjectId,

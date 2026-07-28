@@ -7,21 +7,28 @@ import {
   getPatientById,
   updatePatient,
   archivePatient,
+  importPatients,
+  advanceStudentSchoolYear,
 } from "../controllers/patient.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createPatientSchema, updatePatientSchema } from "../validators/schemas";
+import {
+  advanceSchoolYearSchema,
+  createPatientSchema,
+  importPatientsSchema,
+  updatePatientSchema,
+} from "../validators/schemas";
 
 const router = express.Router();
 
 
-// Nurse only - create patient
+// Student staff and nurse - register a student
 router.post(
   "/",
   protect,
-  allowRoles("nurse"),
+  allowRoles("staff", "nurse"),
   validateBody(createPatientSchema),
   createPatient
 );
@@ -35,30 +42,46 @@ router.get(
   getPatientsBasic
 );
 
+router.post(
+  "/import",
+  protect,
+  allowRoles("staff", "nurse"),
+  validateBody(importPatientsSchema),
+  importPatients,
+);
 
-// Doctor + Nurse + Admin - full patient list
+router.post(
+  "/school-year/advance",
+  protect,
+  allowRoles("admin"),
+  validateBody(advanceSchoolYearSchema),
+  advanceStudentSchoolYear,
+);
+
+
+// Student staff and clinical roles - demographic patient list
 router.get(
   "/",
   protect,
-  allowRoles("doctor", "nurse", "admin"),
+  allowRoles("staff", "doctor", "nurse", "admin"),
   getPatients
 );
 
 
-// Doctor + Nurse - view single patient (full info)
+// Student staff and clinical roles - view demographic profile
 router.get(
   "/:id",
   protect,
-  allowRoles("doctor", "nurse"),
+  allowRoles("staff", "doctor", "nurse"),
   getPatientById
 );
 
 
-// Nurse only - update basic patient info (not medical data)
+// Student staff and nurse - update demographic/contact information only
 router.put(
   "/:id",
   protect,
-  allowRoles("nurse"),
+  allowRoles("staff", "nurse"),
   validateBody(updatePatientSchema),
   updatePatient
 );

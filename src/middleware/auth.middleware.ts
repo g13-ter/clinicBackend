@@ -8,10 +8,9 @@ export const protect = (
   next: NextFunction
 ): void => {
   try {
-    // 1. Kuhaa ang Authorization header
+    // Require a Bearer token.
     const authHeader = req.headers.authorization;
 
-    // 2. Siguradoha nga naa ang header ug Bearer ang format
     if (!authHeader?.startsWith("Bearer ")) {
       res.status(401).json({
         message: "Authorization header must start with Bearer",
@@ -19,7 +18,6 @@ export const protect = (
       return;
     }
 
-    // 3. Kuhaa ang JWT token
     const token = authHeader.split(" ")[1];
 
     if (!token) {
@@ -29,13 +27,12 @@ export const protect = (
   return;
 }
 
-    // 4. Verify ang token
+    // Verify and validate the token before trusting its payload.
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET as string
     );
 
-    // 5. Validate ang payload gamit ang Zod
     const parsed = jwtPayloadSchema.safeParse(decoded);
 
     if (!parsed.success) {
@@ -45,10 +42,9 @@ export const protect = (
       return;
     }
 
-    // 6. Ibutang ang user sa request
+    // Attach the authenticated user for downstream handlers.
     req.user = parsed.data;
 
-    // 7. Padayon sa sunod nga middleware/controller
     next();
 
   } catch {

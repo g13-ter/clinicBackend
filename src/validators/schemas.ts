@@ -42,10 +42,52 @@ export const createPatientSchema = z.object({
   yearLevel: z.number().int().min(1).max(10),
   contactNumber: z.string().min(7, "Contact number looks too short"),
   email: z.string().email("Must be a valid email").optional(),
-  address: z.string().min(1)
+  address: z.string().min(1),
+  dateOfBirth: z.coerce.date().optional(),
+  bloodType: z.string().max(10).optional(),
+  guardianName: z.string().min(1).optional(),
+  guardianContactNumber: z.string().min(7).optional(),
+  healthConditions: z.string().optional(),
+  medicalAlerts: z.object({
+    allergies: z.array(z.string().min(1)).optional(),
+    chronicConditions: z.array(z.string().min(1)).optional(),
+    currentMedications: z.array(z.string().min(1)).optional(),
+    notes: z.string().optional(),
+  }).optional(),
+  consents: z.object({
+    treatment: z.boolean(),
+    medicineAdministration: z.boolean(),
+    dataPrivacy: z.boolean(),
+    guardianName: z.string().optional(),
+    updatedAt: z.coerce.date().optional(),
+  }).optional(),
+  schoolYear: z.string().regex(/^\d{4}-\d{4}$/).optional(),
+  enrollmentStatus: z.enum(["active", "graduated", "transferred"]).optional(),
+  immunizations: z.array(z.object({
+    vaccine: z.string().min(1),
+    dateAdministered: z.coerce.date().optional(),
+    notes: z.string().optional(),
+  })).optional(),
 });
 
 export const updatePatientSchema = createPatientSchema.partial();
+
+export const importPatientsSchema = z.object({
+  students: z.array(
+    createPatientSchema.omit({
+      bloodType: true,
+      healthConditions: true,
+      medicalAlerts: true,
+      consents: true,
+      immunizations: true,
+    }),
+  ).min(1).max(500),
+});
+
+export const advanceSchoolYearSchema = z.object({
+  schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
+  graduatingYearLevel: z.number().int().min(1).max(10).default(4),
+});
 
 
 // ===== CLINIC VISIT =====
@@ -57,11 +99,37 @@ export const createVisitSchema = z.object({
   notes: z.string().optional(),
   bloodPressure: z.string().optional(),
   temperature: z.number().optional(),
-  pulseRate: z.number().optional()
+  pulseRate: z.number().optional(),
+  respiratoryRate: z.number().int().positive().optional(),
+  heightCm: z.number().positive().optional(),
+  weightKg: z.number().positive().optional(),
+  nursingAssessment: z.string().optional(),
+  consultationFindings: z.string().optional(),
+  nursingInterventions: z.string().optional(),
+  nursingRecommendations: z.string().optional(),
+  clinicProtocolReference: z.string().optional(),
+  isEmergency: z.boolean().optional(),
+  emergencyDetails: z.string().optional(),
 });
 
 export const updateVisitSchema = createVisitSchema.partial().omit({
   patientId: true
+});
+
+export const updateVisitStatusSchema = z.object({
+  status: z.enum(["triage", "ready_for_doctor", "in_consultation", "paused", "completed", "cancelled", "referred"]),
+  referralFacility: z.string().min(1).optional(),
+  referralReason: z.string().min(1).optional(),
+  referralOutcome: z.string().optional(),
+  guardianNotifiedAt: z.coerce.date().optional(),
+  closureOutcome: z.enum(["returned_to_class", "sent_home", "guardian_pickup", "referred", "cancelled", "physician_consultation"]).optional(),
+}).superRefine((value, ctx) => {
+  if (value.status === "referred" && (!value.referralFacility || !value.referralReason)) {
+    ctx.addIssue({ code: "custom", message: "Referral facility and reason are required", path: ["referralFacility"] });
+  }
+  if ((value.status === "completed" || value.status === "cancelled") && !value.closureOutcome) {
+    ctx.addIssue({ code: "custom", message: "A closure outcome is required", path: ["closureOutcome"] });
+  }
 });
 
 
@@ -75,6 +143,7 @@ export const prescribedItemSchema = z.object({
 
 export const createMedicalHistorySchema = z.object({
   patientId: z.string().min(1, "Patient ID is required"),
+  visitId: z.string().optional(),
   diagnosis: z.string().optional(),
   prescription: z.string().optional(),
   prescribedItems: z.array(prescribedItemSchema).optional(),
@@ -83,10 +152,7 @@ export const createMedicalHistorySchema = z.object({
   allergies: z.string().optional()
 });
 
-// prescribedItems is intentionally excluded here: stock validation/deduction
-// (see medicalHistory.service.ts) only happens on CREATE. Allowing it here
-// too would let an update silently rewrite prescribed quantities without
-// touching inventory, leaving the record and the stock out of sync.
+// Prescriptions are immutable after creation to keep inventory in sync.
 export const updateMedicalHistorySchema = createMedicalHistorySchema.partial().omit({
   patientId: true,
   prescribedItems: true
@@ -102,15 +168,21 @@ export const createAppointmentSchema = z.object({
     message: "Appointment date must be a valid date"
   }),
   reason: z.string().min(1, "Reason is required"),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  durationMinutes: z.number().int().min(5).max(480).optional(),
+  type: z.enum(["regular", "follow_up"]).optional(),
+  sourceVisitId: z.string().optional(),
 });
 
 export const updateAppointmentSchema = z.object({
   doctorId: z.string().optional(),
   appointmentDate: z.coerce.date().optional(),
   reason: z.string().min(1).optional(),
-  status: z.enum(["pending", "confirmed", "cancelled", "completed"]).optional(),
-  notes: z.string().optional()
+  status: z.enum(["pending", "confirmed", "checked_in", "cancelled", "completed"]).optional(),
+  notes: z.string().optional(),
+  durationMinutes: z.number().int().min(5).max(480).optional(),
+  type: z.enum(["regular", "follow_up"]).optional(),
+  sourceVisitId: z.string().optional(),
 });
 
 
@@ -129,13 +201,32 @@ export const createMedicineSchema = z.object({
 
 export const updateMedicineSchema = createMedicineSchema.partial();
 
+export const createInventoryBatchSchema = z.object({
+  batchNumber: z.string().min(1, "Batch number is required"),
+  quantityReceived: z.number().int().min(1, "Quantity received must be at least 1"),
+  expiryDate: z.coerce.date().optional(),
+  supplier: z.string().optional(),
+  receivedAt: z.coerce.date().optional(),
+  notes: z.string().optional(),
+});
+
 
 // ===== PURCHASE REQUEST =====
 
 export const createPurchaseRequestSchema = z.object({
-  medicineId: z.string().min(1, "Medicine ID is required"),
+  medicineId: z.string().min(1).optional(),
+  itemName: z.string().min(1, "Medicine name is required").optional(),
+  unit: z.string().min(1, "Unit is required").optional(),
+  category: z.string().optional(),
   quantityRequested: z.number().int().min(1, "Quantity must be at least 1"),
   reason: z.string().min(1, "Reason is required"),
+}).superRefine((value, ctx) => {
+  if (!value.medicineId && !value.itemName) {
+    ctx.addIssue({ code: "custom", message: "Select an inventory item or enter a new medicine name", path: ["itemName"] });
+  }
+  if (!value.medicineId && !value.unit) {
+    ctx.addIssue({ code: "custom", message: "Unit is required for a new medicine", path: ["unit"] });
+  }
 });
 
 export const reviewPurchaseRequestSchema = z.object({
@@ -143,4 +234,45 @@ export const reviewPurchaseRequestSchema = z.object({
     message: "Status must be either approved or rejected",
   }),
   reviewNotes: z.string().optional(),
+});
+
+export const orderPurchaseRequestSchema = z.object({
+  supplier: z.string().optional(),
+  estimatedCost: z.number().min(0).optional(),
+});
+
+export const cancelPurchaseRequestSchema = z.object({
+  reviewNotes: z.string().max(500).optional(),
+});
+
+export const receivePurchaseRequestSchema = z.object({
+  batchNumber: z.string().min(1),
+  quantityReceived: z.number().int().min(1),
+  expiryDate: z.coerce.date().optional(),
+  supplier: z.string().optional(),
+});
+
+
+// ===== SYSTEM SETTINGS =====
+
+const timeSchema = z.string().regex(
+  /^([01]\d|2[0-3]):[0-5]\d$/,
+  "Time must use the 24-hour HH:mm format",
+);
+
+export const updateSystemSettingsSchema = z.object({
+  schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
+  clinicOpenTime: timeSchema,
+  clinicCloseTime: timeSchema,
+  emailNotificationsEnabled: z.boolean(),
+  appointmentRemindersEnabled: z.boolean(),
+  stockAlertsEnabled: z.boolean(),
+}).superRefine((value, ctx) => {
+  if (value.clinicCloseTime <= value.clinicOpenTime) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Closing time must be later than opening time",
+      path: ["clinicCloseTime"],
+    });
+  }
 });

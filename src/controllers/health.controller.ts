@@ -9,5 +9,15 @@ export const getHealth = (_req: Request, res: Response): void => {
     uptime: process.uptime(),
     database: dbConnected ? "connected" : "disconnected",
     timestamp: new Date().toISOString(),
+    release: process.env.RELEASE_SHA || process.env.npm_package_version || "development",
+  });
+};
+
+export const getLiveness = (_req: Request, res: Response): void => {
+  res.status(200).json({
+    status: "ok",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    release: process.env.RELEASE_SHA || process.env.npm_package_version || "development",
   });
 };

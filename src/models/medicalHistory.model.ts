@@ -11,13 +11,10 @@ export interface IPrescribedItem {
 
 export interface IMedicalHistory extends Document {
   patientId: mongoose.Types.ObjectId;
+  visitId?: mongoose.Types.ObjectId;
   diagnosis: string;
   prescription: string;
-  // Structured, stock-linked prescription lines - each one is validated
-  // against and deducted from real Medicine inventory at creation time
-  // (see medicalHistory.service.ts). `prescription` above remains free
-  // text for general notes/instructions that aren't tied to a specific
-  // inventory item.
+  // Stock-linked items are validated and deducted at creation.
   prescribedItems?: IPrescribedItem[];
   labRequest?: string;
   familyHistory: string;
@@ -56,12 +53,14 @@ const PrescribedItemSchema = new Schema<IPrescribedItem>(
 
 const MedicalHistorySchema = new Schema<IMedicalHistory>(
   {
-   patientId: {
+    patientId: {
       type: Schema.Types.ObjectId,
       ref: "Patient",
       required: true,
       index: true,
     },
+    // One clinical visit can produce only one final medical-history record.
+    visitId: { type: Schema.Types.ObjectId, ref: "ClinicVisit", unique: true, sparse: true },
 
     diagnosis: {
       type: String,
@@ -76,8 +75,7 @@ const MedicalHistorySchema = new Schema<IMedicalHistory>(
       default: undefined,
     },
 
-    // Optional laboratory test request the doctor can attach to a
-    // consultation (e.g. "CBC", "Urinalysis") - not every visit needs one.
+    // Optional laboratory request, such as CBC or urinalysis.
     labRequest: {
       type: String,
     },

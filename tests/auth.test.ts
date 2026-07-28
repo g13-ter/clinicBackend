@@ -8,18 +8,17 @@ import bcrypt from "bcryptjs";
 dotenv.config();
 
 
-// A clearly-marked test account, so it's obvious in the database
-// (and easy to clean up) which records belong to automated tests.
+// Clearly identify the temporary test account.
 const TEST_EMAIL = "TEST_auth_user@clinic.com";
 const TEST_PASSWORD = "testpass123";
 
 
-// runs ONCE before any test in this file - connect to the database
+// Connect once for this suite.
 beforeAll(async () => {
 
   await mongoose.connect(process.env.MONGO_URI as string);
 
-  // create one known test user we can log in as during these tests
+  // Create the suite's login user.
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(TEST_PASSWORD, salt);
 
@@ -33,8 +32,7 @@ beforeAll(async () => {
 });
 
 
-// runs ONCE after all tests in this file finish - clean up
-// exactly the test data we created, nothing else
+// Remove only this suite's data.
 afterAll(async () => {
 
   await User.deleteOne({ email: TEST_EMAIL });
@@ -125,6 +123,27 @@ describe("Auth - Security", () => {
     // the route shouldn't exist at all - notFoundHandler should catch this
     expect(res.status).toBe(404);
 
+  });
+
+  it("applies a two-minute cooldown after five failed attempts for one account", async () => {
+    const email = `rate-limit-${Date.now()}@clinic.com`;
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await request(app)
+        .post("/api/auth/login")
+        .send({ email, password: "wrongpassword" });
+      expect(response.status).toBe(401);
+    }
+
+    const blocked = await request(app)
+      .post("/api/auth/login")
+      .send({ email, password: "wrongpassword" });
+
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.message).toBe(
+      "Too many failed login attempts. Please try again in 2 minutes."
+    );
+    expect(Number(blocked.headers["retry-after"])).toBeLessThanOrEqual(120);
   });
 
 });

@@ -8,13 +8,15 @@ import {
   archiveVisit,
   getTodayVisitCount,
   getQueue,
-  markReadyForDoctor
+  markReadyForDoctor,
+  updateVisitStatus,
+  downloadReferralForm,
 } from "../controllers/clinicVisit.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createVisitSchema, updateVisitSchema } from "../validators/schemas";
+import { createVisitSchema, updateVisitSchema, updateVisitStatusSchema } from "../validators/schemas";
 
 const router = express.Router();
 
@@ -28,21 +30,21 @@ router.get(
 );
 
 
-// Nurse + Doctor + Admin - clinic-wide "who's here right now" queue.
+// Staff, nurse, doctor and admin - clinic-wide queue.
 // Must come before "/:id" so "queue" isn't swallowed as an :id param.
 router.get(
   "/queue",
   protect,
-  allowRoles("nurse", "doctor", "admin"),
+  allowRoles("staff", "nurse", "doctor", "admin"),
   getQueue
 );
 
 
-// Nurse only - create visit
+// Staff checks in; nurses and doctors may record consultations.
 router.post(
   "/",
   protect,
-  allowRoles("nurse"),
+  allowRoles("staff", "nurse", "doctor"),
   validateBody(createVisitSchema),
   createVisit
 );
@@ -66,11 +68,11 @@ router.get(
 );
 
 
-// Nurse only - update their own logged visit
+// Nurses and doctors update the active clinical record.
 router.put(
   "/:id",
   protect,
-  allowRoles("nurse"),
+  allowRoles("nurse", "doctor"),
   validateBody(updateVisitSchema),
   updateVisit
 );
@@ -82,6 +84,21 @@ router.put(
   protect,
   allowRoles("nurse"),
   markReadyForDoctor
+);
+
+router.get(
+  "/:id/referral-form",
+  protect,
+  allowRoles("nurse", "doctor"),
+  downloadReferralForm,
+);
+
+router.put(
+  "/:id/status",
+  protect,
+  allowRoles("nurse", "doctor"),
+  validateBody(updateVisitStatusSchema),
+  updateVisitStatus
 );
 
 

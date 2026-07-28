@@ -3,6 +3,8 @@ import { ClinicVisitService } from "../services/clinicVisit.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
+import { AppError } from "../middleware/error.middleware";
+import { buildReferralDocx } from "../utils/referralDocx";
 
 const clinicVisitService = new ClinicVisitService();
 
@@ -20,7 +22,19 @@ export const getTodayVisitCount = async (req: Request, res: Response, next: Next
 export const getQueue = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const queue = await clinicVisitService.getQueue();
-    res.status(200).json({ success: true, message: "Patient queue retrieved successfully", data: queue });
+    const isStaff = getAuthenticatedUser(req).role === "staff";
+    const data = isStaff
+      ? queue.map((visit) => ({
+          _id: visit._id,
+          patientId: visit.patientId,
+          appointmentId: visit.appointmentId,
+          assignedDoctorId: visit.assignedDoctorId,
+          visitDate: visit.visitDate,
+          status: visit.status,
+          isActive: visit.isActive,
+        }))
+      : queue;
+    res.status(200).json({ success: true, message: "Student queue retrieved successfully", data });
   } catch (error) {
     next(error);
   }
@@ -44,7 +58,19 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Patient marked ready for doctor", data: after });
+    res.status(200).json({ success: true, message: "Student marked ready for consultation", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateVisitStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const userId = getAuthenticatedUser(req).id;
+    const { before, after } = await clinicVisitService.updateStatus(id, req.body, userId);
+    logAudit({ action: "update", resource: "ClinicVisit", resourceId: id, performedBy: userId, before: before.toObject(), after: after.toObject(), method: req.method, path: req.originalUrl });
+    res.status(200).json({ success: true, message: "Visit status updated successfully", data: after });
   } catch (error) {
     next(error);
   }
@@ -54,16 +80,14 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
 export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { patientId, complaint, treatment, notes, bloodPressure, temperature, pulseRate } = req.body;
+    const { patientId, ...visitData } = req.body;
+    if (visitData.heightCm && visitData.weightKg) {
+      visitData.bmi = Number((visitData.weightKg / Math.pow(visitData.heightCm / 100, 2)).toFixed(1));
+    }
 
     const visit = await clinicVisitService.createVisit({
       patientId,
-      complaint,
-      treatment,
-      notes,
-      bloodPressure,
-      temperature,
-      pulseRate,
+      ...visitData,
       recordedBy: getAuthenticatedObjectId(req),
     });
 
@@ -120,8 +144,12 @@ export const updateVisit = async (req: Request, res: Response, next: NextFunctio
   try {
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
+    const visitData = { ...req.body };
+    if (visitData.heightCm && visitData.weightKg) {
+      visitData.bmi = Number((visitData.weightKg / Math.pow(visitData.heightCm / 100, 2)).toFixed(1));
+    }
     const { before, after } = await clinicVisitService.updateVisit(id, {
-      ...req.body,
+      ...visitData,
       updatedBy: getAuthenticatedObjectId(req),
     });
 
@@ -161,6 +189,44 @@ export const archiveVisit = async (req: Request, res: Response, next: NextFuncti
     });
 
     res.status(200).json({ success: true, message: "Clinic visit archived successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const downloadReferralForm = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const visit = await clinicVisitService.getVisitById(req.params.id as string);
+    if (visit.status !== "referred" || !visit.referralFacility || !visit.referralReason) {
+      throw new AppError("A referral form is available only after the visit is referred", 409);
+    }
+    const patient = visit.patientId as unknown as {
+      firstName: string;
+      lastName: string;
+      studentId: string;
+    };
+    const provider = (visit.updatedBy ?? visit.recordedBy) as unknown as { name?: string };
+    const vitals = [
+      visit.temperature ? `${visit.temperature}°C` : "",
+      visit.bloodPressure || "",
+      visit.pulseRate ? `${visit.pulseRate} bpm` : "",
+    ].filter(Boolean).join(" · ");
+    const buffer = await buildReferralDocx({
+      studentName: `${patient.firstName} ${patient.lastName}`,
+      studentId: patient.studentId,
+      visitDate: visit.visitDate,
+      complaint: visit.complaint,
+      vitals,
+      ...(visit.emergencyDetails ? { emergencyDetails: visit.emergencyDetails } : {}),
+      referralFacility: visit.referralFacility,
+      referralReason: visit.referralReason,
+      ...(visit.referralOutcome ? { referralOutcome: visit.referralOutcome } : {}),
+      ...(visit.guardianNotifiedAt ? { guardianNotifiedAt: visit.guardianNotifiedAt } : {}),
+      ...(provider?.name ? { providerName: provider.name } : {}),
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", `attachment; filename="Referral_${patient.studentId}_${visit._id}.docx"`);
+    res.send(buffer);
   } catch (error) {
     next(error);
   }

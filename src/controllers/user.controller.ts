@@ -13,7 +13,7 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     const { name, email, password, role } = req.body;
     const user = await userService.createUser({ name, email, password, role });
 
-    // never include password (hashed or not) in the audit log or the API response
+    // Never expose password data.
     const { password: _omit, ...safeUser } = user.toObject();
 
     logAudit({
@@ -49,8 +49,7 @@ export const getUsers = async (req: Request, res: Response, next: NextFunction):
   }
 };
 
-// GET DOCTORS — read-only, not audit-logged. Used to populate the "select
-// a doctor" step on appointment booking, and admin's doctor-schedule view.
+// GET DOCTORS — booking and schedule lookup, not audit-logged
 export const getDoctors = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const doctors = await userService.getDoctors();
@@ -117,6 +116,15 @@ export const deleteUser = async (req: Request, res: Response, next: NextFunction
     });
 
     res.status(200).json({ success: true, message: "User deleted successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getCurrentUserProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = await userService.getUserById(getAuthenticatedUser(req).id);
+    res.status(200).json({ success: true, message: "Profile retrieved successfully", data: user });
   } catch (error) {
     next(error);
   }

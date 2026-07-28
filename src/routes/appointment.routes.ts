@@ -2,6 +2,8 @@ import express from "express";
 
 import {
   createAppointment,
+  checkInAppointment,
+  completeAppointment,
   getAppointments,
   getAppointmentById,
   updateAppointment
@@ -15,13 +17,27 @@ import { createAppointmentSchema, updateAppointmentSchema } from "../validators/
 const router = express.Router();
 
 
-// Staff + Nurse - create appointment
+// Staff, nurse, or doctor - create appointment
 router.post(
   "/",
   protect,
-  allowRoles("staff", "nurse"),
+  allowRoles("staff", "nurse", "doctor"),
   validateBody(createAppointmentSchema),
   createAppointment
+);
+
+router.put(
+  "/:id/complete",
+  protect,
+  allowRoles("nurse", "doctor"),
+  completeAppointment
+);
+
+router.post(
+  "/:id/check-in",
+  protect,
+  allowRoles("staff", "nurse", "doctor"),
+  checkInAppointment
 );
 
 

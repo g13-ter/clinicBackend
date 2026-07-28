@@ -17,6 +17,7 @@ let staffToken: string;
 let staffId: string;
 
 let createdPatientId: string | null = null;
+const staffCreatedPatientIds: string[] = [];
 
 
 beforeAll(async () => {
@@ -52,13 +53,14 @@ afterAll(async () => {
   if (createdPatientId) {
     await Patient.findByIdAndDelete(createdPatientId);
   }
+  await Patient.deleteMany({ _id: { $in: staffCreatedPatientIds } });
 
   await mongoose.connection.close();
 
 });
 
 
-describe("Patients - Create (nurse only)", () => {
+describe("Patients - Create (staff and nurse)", () => {
 
   it("allows a NURSE to create a patient", async () => {
 
@@ -106,7 +108,7 @@ describe("Patients - Create (nurse only)", () => {
   });
 
 
-  it("blocks STAFF from creating a patient", async () => {
+  it("allows STAFF to register a patient with guardian contact details", async () => {
 
     const res = await request(app)
       .post("/api/patients")
@@ -114,16 +116,25 @@ describe("Patients - Create (nurse only)", () => {
       .send({
         studentId: `TEST-${Date.now()}`,
         firstName: "TEST",
-        lastName: "Should Fail",
+        lastName: "StaffRegistered",
         age: 20,
         gender: "Male",
         course: "BSIT",
         yearLevel: 2,
         contactNumber: "09171234567",
-        address: "Test Address"
+        address: "Test Address",
+        guardianName: "TEST Guardian",
+        guardianContactNumber: "09179999999",
+        bloodType: "O+",
+        healthConditions: "Should be ignored for staff registration"
       });
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(201);
+    staffCreatedPatientIds.push(res.body.data._id);
+    const stored = await Patient.findById(res.body.data._id);
+    expect(stored?.guardianName).toBe("TEST Guardian");
+    expect(stored?.bloodType).toBeUndefined();
+    expect(stored?.healthConditions).toBeUndefined();
 
   });
 
@@ -165,13 +176,14 @@ describe("Patients - View permissions differ by role", () => {
   });
 
 
-  it("STAFF is blocked from the full patient list", async () => {
+  it("STAFF can access the demographic patient list", async () => {
 
     const res = await request(app)
       .get("/api/patients")
       .set("Authorization", `Bearer ${staffToken}`);
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(res.body.data[0]).not.toHaveProperty("healthConditions");
 
   });
 

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "../src/app";
 import { PERMISSIONS } from "../src/config/permissions";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
+import Appointment from "../src/models/appointment.model";
 
 dotenv.config();
 
@@ -61,11 +62,11 @@ describe("RBAC matrix — patients", () => {
     }
   });
 
-  it("blocks staff from the full patient list", async () => {
+  it("allows staff to access the demographic patient list", async () => {
     const res = await request(app)
       .get("/api/patients")
       .set("Authorization", `Bearer ${staffToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
   });
 
   it("allows staff on the basic patient list", async () => {
@@ -86,16 +87,19 @@ describe("RBAC matrix — appointments", () => {
     }
   });
 
-  it("blocks doctor from creating appointments", async () => {
+  it("allows doctors to schedule clinical follow-ups", async () => {
     const res = await request(app)
       .post("/api/appointments")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
         patientId: "507f1f77bcf86cd799439011",
         appointmentDate: "2026-08-01T09:00:00.000Z",
-        reason: "Should fail",
+        reason: "Clinical follow-up",
+        type: "follow_up",
       });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(201);
+    expect(res.body.data.doctorId).toBe(doctorId);
+    await Appointment.findByIdAndDelete(res.body.data._id);
   });
 });
 
@@ -117,8 +121,7 @@ describe("RBAC matrix — admin-only routes", () => {
 
 describe("RBAC — invalid token payload", () => {
   it("rejects a token whose role claim is not in the allowed enum", async () => {
-    // Malformed role in a manually crafted token would fail jwtPayloadSchema in protect.
-    // Here we verify a completely invalid token is rejected.
+    // Invalid tokens must fail before role checks.
     const res = await request(app)
       .get("/api/patients")
       .set("Authorization", "Bearer not.a.valid.jwt");

@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import app from "../src/app";
 import Medicine from "../src/models/medicine.model";
+import PurchaseRequest from "../src/models/purchaseRequest.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
@@ -15,6 +16,7 @@ let staffToken: string;
 let staffId: string;
 
 let createdMedicineId: string | null = null;
+let createdPurchaseRequestId: string | null = null;
 
 
 beforeAll(async () => {
@@ -44,6 +46,9 @@ afterAll(async () => {
 
   if (createdMedicineId) {
     await Medicine.findByIdAndDelete(createdMedicineId);
+  }
+  if (createdPurchaseRequestId) {
+    await PurchaseRequest.findByIdAndDelete(createdPurchaseRequestId);
   }
 
   await mongoose.connection.close();
@@ -245,4 +250,40 @@ describe("Medicine Inventory - Expiring/Expired", () => {
 
   });
 
+});
+
+describe("Medicine Inventory - Staff access", () => {
+  it("allows STAFF to view inventory without granting edit access", async () => {
+    const listResponse = await request(app)
+      .get("/api/medicines")
+      .set("Authorization", `Bearer ${staffToken}`);
+    const updateResponse = await request(app)
+      .put(`/api/medicines/${createdMedicineId}`)
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({ quantity: 999 });
+
+    expect(listResponse.status).toBe(200);
+    expect(updateResponse.status).toBe(403);
+  });
+});
+
+describe("Medicine Purchasing - New items", () => {
+  it("allows a nurse to request a medicine not yet in inventory", async () => {
+    const response = await request(app)
+      .post("/api/purchase-requests")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        itemName: "TEST Cetirizine",
+        unit: "tablets",
+        category: "Antihistamine",
+        quantityRequested: 100,
+        reason: "Needed for allergy cases",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.requestType).toBe("new_item");
+    expect(response.body.data.itemName).toBe("TEST Cetirizine");
+    expect(response.body.data.medicineId).toBeUndefined();
+    createdPurchaseRequestId = response.body.data._id;
+  });
 });

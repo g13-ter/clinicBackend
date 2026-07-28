@@ -4,7 +4,7 @@ import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
-import { mailer } from "../services/mailer.service";
+import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger from "../utils/logger";
 
 const medicineService = new MedicineService();
@@ -99,11 +99,7 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
 
     res.status(200).json({ success: true, message: "Medicine updated successfully", data: after });
 
-    // Fire-and-forget: response already sent above, email failure must
-    // never affect it. Only alert when the update just CROSSED into a
-    // concerning status (e.g. Available -> Low Stock) - not on every
-    // update to an item that was already low/out/expired, which would
-    // spam admins on every unrelated edit.
+    // Alert only when an item enters a concerning status.
     const concerningStatuses = ["Low Stock", "Out of Stock", "Expired"];
     const beforeStatus = computeStatus(before);
     const afterStatus = computeStatus(after);
@@ -114,12 +110,16 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
           const adminEmails = await userService.getAdminEmails();
           await Promise.all(
             adminEmails.map((to) =>
-              mailer.sendLowStockAlert({
-                to,
-                itemName: after.name,
-                quantity: after.quantity,
-                unit: after.unit,
-                status: afterStatus,
+              enqueueNotification({
+                kind: "low_stock",
+                recipient: to,
+                dedupeKey: `low-stock:${after._id}:${afterStatus}:${after.quantity}:${to}`,
+                payload: {
+                  itemName: after.name,
+                  quantity: after.quantity,
+                  unit: after.unit,
+                  status: afterStatus,
+                },
               })
             )
           );
@@ -133,10 +133,7 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-// GET LOW STOCK
-// Not audit-logged - this is an alert/dashboard-style endpoint, likely
-// polled often, and doesn't represent someone deliberately looking up
-// a specific record.
+// GET LOW STOCK — polled alert data, not audit-logged
 export const getLowStockMedicines = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const lowStock = await medicineService.getLowStockMedicines();
@@ -170,8 +167,7 @@ export const deleteMedicine = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-// GET EXPIRING/EXPIRED
-// Not audit-logged, same reasoning as low stock - an alert/dashboard-style endpoint.
+// GET EXPIRING/EXPIRED — polled alert data, not audit-logged
 export const getExpiringMedicines = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const expiring = await medicineService.getExpiringMedicines();

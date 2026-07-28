@@ -8,12 +8,19 @@ export interface AuditLogFilters {
   performedBy?: string;
 }
 
+interface AuditLogQuery {
+  resource?: string;
+  resourceId?: string;
+  action?: AuditAction | { $ne: "view" };
+  performedBy?: string;
+}
+
 export class AuditLogService {
   async getLogs(
     filters: AuditLogFilters,
     { limit, skip }: PaginationParams
   ): Promise<{ logs: IAuditLog[]; total: number }> {
-    const filter: any = {};
+    const filter: AuditLogQuery = {};
 
     if (filters.resource) filter.resource = filters.resource;
     if (filters.resourceId) filter.resourceId = filters.resourceId;

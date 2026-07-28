@@ -6,6 +6,8 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: UserRole;
+  isAvailable: boolean;
+  scheduleNotes?: string;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -31,6 +33,9 @@ const UserSchema = new Schema<IUser>(
       required: true,
       enum: ["admin", "doctor", "nurse", "staff"],
     },
+
+    isAvailable: { type: Boolean, default: true },
+    scheduleNotes: String,
   },
   {
     timestamps: true,

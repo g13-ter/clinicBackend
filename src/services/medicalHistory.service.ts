@@ -1,7 +1,12 @@
 import MedicalHistory, { IMedicalHistory, IPrescribedItem } from "../models/medicalHistory.model";
 import Medicine, { IMedicine } from "../models/medicine.model";
+import ClinicVisit from "../models/clinicVisit.model";
+import MedicineDispense from "../models/medicineDispense.model";
+import Appointment from "../models/appointment.model";
+import InventoryBatch from "../models/inventoryBatch.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { withMongoTransaction } from "../utils/transaction";
 
 export interface StockChange {
   medicine: IMedicine;
@@ -12,72 +17,157 @@ export class MedicalHistoryService {
   async createMedicalHistory(
     data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string }[] }
   ): Promise<{ entry: IMedicalHistory; stockChanges: StockChange[] }> {
-    const requestedItems = data.prescribedItems ?? [];
-    const stockChanges: StockChange[] = [];
-    const snapshotItems: IPrescribedItem[] = [];
-
-    if (requestedItems.length > 0) {
-      // Validate every line BEFORE touching any stock, so a request that's
-      // only partially fulfillable fails cleanly instead of deducting some
-      // items and rejecting others.
-      const medicinePairs = await Promise.all(
-        requestedItems.map(async (item) => ({
-          requested: item,
-          medicine: await Medicine.findById(item.medicineId),
-        }))
-      );
-
-      for (const pair of medicinePairs) {
-        if (!pair.medicine) {
-          throw new AppError(`Medicine not found: ${pair.requested.medicineId}`, 404);
+    try {
+      return await withMongoTransaction(async (session) => {
+        if (data.visitId) {
+          const existingQuery = MedicalHistory.findOne({ visitId: data.visitId });
+          if (session) existingQuery.session(session);
+          if (await existingQuery) {
+            throw new AppError("This consultation has already been saved", 409);
+          }
         }
-        if (pair.medicine.quantity < pair.requested.quantity) {
-          throw new AppError(
-            `Insufficient stock for "${pair.medicine.name}": ${pair.requested.quantity} requested, only ${pair.medicine.quantity} ${pair.medicine.unit} available`,
-            400
-          );
-        }
-      }
 
-      // All lines validated - now deduct. Each deduction uses an atomic
-      // conditional $inc (quantity: { $gte: requested }) as a second line
-      // of defense against a concurrent request racing us between the
-      // check above and this update; if that race is lost, we fail loudly
-      // rather than silently allowing negative stock.
-      for (const pair of medicinePairs) {
-        const { requested } = pair;
-        const medicineBefore = pair.medicine as IMedicine;
+        const requestedItems = data.prescribedItems ?? [];
+        const stockChanges: StockChange[] = [];
+        const snapshotItems: IPrescribedItem[] = [];
+        const batchAllocationsByMedicine = new Map<string, {
+          batchId: InstanceType<typeof InventoryBatch>["_id"];
+          batchNumber: string;
+          quantity: number;
+        }[]>();
 
-        const updated = await Medicine.findOneAndUpdate(
-          { _id: requested.medicineId, quantity: { $gte: requested.quantity } },
-          { $inc: { quantity: -requested.quantity } },
-          { new: true }
+        const medicinePairs = await Promise.all(
+          requestedItems.map(async (item) => {
+            const query = Medicine.findById(item.medicineId);
+            if (session) query.session(session);
+            return { requested: item, medicine: await query };
+          }),
         );
 
-        if (!updated) {
-          throw new AppError(
-            `Stock for "${medicineBefore.name}" changed before this prescription could be completed - please try again`,
-            409
+        for (const pair of medicinePairs) {
+          if (!pair.medicine) {
+            throw new AppError(`Medicine not found: ${pair.requested.medicineId}`, 404);
+          }
+          const batchQuery = InventoryBatch.find({
+            medicineId: pair.medicine._id,
+            quantityRemaining: { $gt: 0 },
+          }).sort({ expiryDate: 1, receivedAt: 1 });
+          if (session) batchQuery.session(session);
+          const batches = await batchQuery;
+          const totalBatchQuantity = batches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
+          const legacyQuantity = Math.max(0, pair.medicine.quantity - totalBatchQuantity);
+          const now = new Date();
+          const eligibleBatches = batches.filter(
+            (batch) => !batch.expiryDate || batch.expiryDate >= now,
           );
+          const dispensableQuantity =
+            legacyQuantity + eligibleBatches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
+          if (dispensableQuantity < pair.requested.quantity) {
+            throw new AppError(
+              `Insufficient unexpired stock for "${pair.medicine.name}": ${pair.requested.quantity} requested, only ${dispensableQuantity} ${pair.medicine.unit} available`,
+              400,
+            );
+          }
+
+          let remaining = pair.requested.quantity;
+          const allocations: { batchId: InstanceType<typeof InventoryBatch>["_id"]; batchNumber: string; quantity: number }[] = [];
+          for (const batch of eligibleBatches) {
+            if (remaining <= 0) break;
+            const quantity = Math.min(batch.quantityRemaining, remaining);
+            if (quantity <= 0) continue;
+            const updatedBatch = await InventoryBatch.updateOne(
+              { _id: batch._id, quantityRemaining: { $gte: quantity } },
+              { $inc: { quantityRemaining: -quantity } },
+              session ? { session } : {},
+            );
+            if (updatedBatch.modifiedCount !== 1) {
+              throw new AppError(`Stock batch "${batch.batchNumber}" changed. Please try again.`, 409);
+            }
+            allocations.push({ batchId: batch._id, batchNumber: batch.batchNumber, quantity });
+            remaining -= quantity;
+          }
+          batchAllocationsByMedicine.set(String(pair.medicine._id), allocations);
         }
 
-        stockChanges.push({ medicine: updated, previousQuantity: medicineBefore.quantity });
-        snapshotItems.push({
-          medicineId: updated._id as any,
-          medicineName: medicineBefore.name,
-          quantity: requested.quantity,
-          unit: medicineBefore.unit,
-          ...(requested.instructions ? { instructions: requested.instructions } : {}),
-        });
+        for (const pair of medicinePairs) {
+          const medicineBefore = pair.medicine as IMedicine;
+          const updated = await Medicine.findOneAndUpdate(
+            { _id: pair.requested.medicineId, quantity: { $gte: pair.requested.quantity } },
+            { $inc: { quantity: -pair.requested.quantity } },
+            { returnDocument: "after", ...(session ? { session } : {}) },
+          );
+          if (!updated) {
+            throw new AppError(
+              `Stock for "${medicineBefore.name}" changed before this prescription could be completed. Please try again.`,
+              409,
+            );
+          }
+
+          stockChanges.push({ medicine: updated, previousQuantity: medicineBefore.quantity });
+          snapshotItems.push({
+            medicineId: updated._id,
+            medicineName: medicineBefore.name,
+            quantity: pair.requested.quantity,
+            unit: medicineBefore.unit,
+            ...(pair.requested.instructions ? { instructions: pair.requested.instructions } : {}),
+          });
+        }
+
+        const [entry] = await MedicalHistory.create(
+          [{
+            ...data,
+            ...(snapshotItems.length > 0 ? { prescribedItems: snapshotItems } : {}),
+          }],
+          session ? { session } : {},
+        );
+        if (!entry) throw new Error("Medical history entry was not created");
+
+        if (data.visitId) {
+          if (snapshotItems.length > 0) {
+            await MedicineDispense.insertMany(
+              snapshotItems.map((item) => ({
+                visitId: data.visitId,
+                medicineId: item.medicineId,
+                quantity: item.quantity,
+                unit: item.unit,
+                ...(item.instructions ? { instructions: item.instructions } : {}),
+                batchAllocations: batchAllocationsByMedicine.get(String(item.medicineId)) ?? [],
+                dispensedBy: data.recordedBy,
+              })),
+              session ? { session } : {},
+            );
+          }
+
+          const completedVisit = await ClinicVisit.findOneAndUpdate(
+            { _id: data.visitId, patientId: data.patientId! },
+            { status: "completed", closureOutcome: "physician_consultation", closedAt: new Date(), updatedBy: data.recordedBy },
+            { returnDocument: "after", ...(session ? { session } : {}) },
+          );
+          if (!completedVisit) throw new AppError("Clinic visit not found for this student", 409);
+
+          if (completedVisit.appointmentId) {
+            await Appointment.findByIdAndUpdate(
+              completedVisit.appointmentId,
+              { status: "completed", updatedBy: data.recordedBy },
+              session ? { session } : {},
+            );
+          }
+        }
+
+        return { entry, stockChanges };
+      });
+    } catch (error: unknown) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === 11000 &&
+        data.visitId
+      ) {
+        throw new AppError("This consultation has already been saved", 409);
       }
+      throw error;
     }
-
-    const entry = await MedicalHistory.create({
-      ...data,
-      ...(snapshotItems.length > 0 ? { prescribedItems: snapshotItems } : {}),
-    });
-
-    return { entry, stockChanges };
   }
 
   async getHistoryByPatient(

@@ -130,7 +130,7 @@ There are 4 roles:
 Every route except `POST /api/auth/login` requires a JWT token, sent as a header:
 Authorization: Bearer <your token here>
 
-You get a token back from `/api/auth/login`. Login is rate-limited to 5 attempts per 15 minutes per IP, to slow down password-guessing attacks. A general rate limit also applies across the whole API.
+You get a token back from `/api/auth/login`. Five failed attempts for the same account trigger a two-minute cooldown. Successful logins do not count, and a broader IP limit protects against automated guessing across multiple accounts. A general rate limit also applies across the whole API.
 
 ---
 

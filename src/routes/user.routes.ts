@@ -5,6 +5,7 @@ import {
   getUsers,
   getUserById,
   getDoctors,
+  getCurrentUserProfile,
   updateUser,
   deleteUser,
 } from "../controllers/user.controller";
@@ -17,16 +18,18 @@ import { registerSchema, updateUserSchema } from "../validators/schemas";
 const router = express.Router();
 
 
-// GET DOCTORS (for appointment booking's "select a doctor" step)
-// Staff, Nurse, Doctor, Admin - THIS MUST COME BEFORE "/:id" below, or
-// Express will match "/doctors" as "/:id" with id="doctors", which then
-// fails with a Mongoose CastError trying to look up a user by that
-// literal string as an ObjectId.
+// Keep this static route before "/:id".
 router.get(
   "/doctors",
   protect,
   allowRoles("staff", "nurse", "doctor", "admin"),
   getDoctors
+);
+
+router.get(
+  "/me",
+  protect,
+  getCurrentUserProfile
 );
 
 

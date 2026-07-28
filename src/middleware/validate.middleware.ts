@@ -2,8 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import { ZodSchema, ZodIssue } from "zod";
 
 
-// reusable middleware - pass in any zod schema and it will
-// check req.body against it before letting the request through
+// Validate and sanitize request bodies with a Zod schema.
 export const validateBody = (schema: ZodSchema) => {
 
   return (req: Request, res: Response, next: NextFunction) => {
@@ -12,7 +11,7 @@ export const validateBody = (schema: ZodSchema) => {
 
     if (!result.success) {
 
-      // zod gives us a detailed list of what went wrong
+      // Return field-level validation errors.
       const errors = result.error.issues.map((issue: ZodIssue) => ({
         field: issue.path.join("."),
         message: issue.message
@@ -26,7 +25,7 @@ export const validateBody = (schema: ZodSchema) => {
       return;
     }
 
-    // replace req.body with the parsed/cleaned data
+    // Use Zod's parsed and sanitized data.
     req.body = result.data;
 
     next();

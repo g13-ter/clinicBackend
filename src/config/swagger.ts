@@ -16,14 +16,9 @@ import {
   updateMedicineSchema,
 } from "../validators/schemas";
 
-// ---------------------------------------------------------------------------
-// API documentation, generated directly from the same Zod schemas used for
-// real request validation. There is exactly one source of truth for what a
-// request body looks like - if a schema in validators/schemas.ts changes,
-// these docs change with it automatically. Nothing here is hand-typed twice.
-// ---------------------------------------------------------------------------
+// Generate API documentation from the request-validation schemas.
 
-// Generic, reusable response shapes (every controller returns one of these)
+// Reusable response schemas.
 const successResponse = (dataSchema: z.ZodType = z.object({})) =>
   z.object({
     success: z.literal(true),
@@ -62,8 +57,7 @@ const idParam = z.object({
   id: z.string().meta({ description: "MongoDB ObjectId", example: "60f7c2b5e1d3c70015a1b2c3" }),
 });
 
-// shape of a single audit log entry, for documentation purposes only -
-// this isn't request-validated since GET /audit-logs has no body
+// Documentation-only audit log schema.
 const auditLogEntry = z.object({
   _id: z.string(),
   action: z.enum(["create", "update", "delete", "view"]),
@@ -81,7 +75,7 @@ const auditLogEntry = z.object({
   createdAt: z.string(),
 });
 
-// shared response set used by nearly every endpoint, keyed by status code
+// Common responses keyed by status code.
 const standardResponses = (successSchema: z.ZodType) => ({
   200: {
     description: "Success",
@@ -99,16 +93,11 @@ const standardResponses = (successSchema: z.ZodType) => ({
 
 const bearerAuth = [{ bearerAuth: [] }];
 
-// ---------------------------------------------------------------------------
-// Each entry below is one real route. Path/method/roles act as the doc's
-// "header"; the Zod schema supplies the request/response body shape.
-// This is intentionally a flat data structure, not repeated YAML comments -
-// adding a new endpoint means adding one object here, not 40 lines per route.
-// ---------------------------------------------------------------------------
+// Flat route definitions keep endpoint documentation concise.
 
 const paths: ZodOpenApiPathsObject = {
 
-  // ----- AUTH -----
+  // Auth
   "/auth/login": {
     post: {
       tags: ["Auth"],
@@ -127,7 +116,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- USERS (admin only) -----
+  // Users
   "/users": {
     post: {
       tags: ["Users"], summary: "Create a new staff account (admin only)", security: bearerAuth,
@@ -158,7 +147,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- PATIENTS -----
+  // Patients
   "/patients": {
     post: {
       tags: ["Patients"], summary: "Create a new patient (nurse only)", security: bearerAuth,
@@ -203,7 +192,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- CLINIC VISITS -----
+  // Clinic visits
   "/visits": {
     post: {
       tags: ["Clinic Visits"], summary: "Log a new clinic visit (nurse only)", security: bearerAuth,
@@ -244,7 +233,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- MEDICAL HISTORY (no delete - records are permanent) -----
+  // Medical history
   "/medical-history": {
     post: {
       tags: ["Medical History"], summary: "Create a medical history entry (doctor only)", security: bearerAuth,
@@ -279,7 +268,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- APPOINTMENTS -----
+  // Appointments
   "/appointments": {
     post: {
       tags: ["Appointments"], summary: "Book a new appointment (staff/nurse)", security: bearerAuth,
@@ -312,7 +301,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- MEDICINES -----
+  // Medicines
   "/medicines": {
     post: {
       tags: ["Medicines"], summary: "Add a new medicine to inventory (nurse only)", security: bearerAuth,
@@ -351,7 +340,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- AUDIT LOGS (admin only) -----
+  // Audit logs
   "/audit-logs": {
     get: {
       tags: ["Audit Logs"],
@@ -371,7 +360,7 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
-  // ----- REPORTS (admin only) -----
+  // Reports
   "/reports/clinic-summary": {
     get: {
       tags: ["Reports"],
@@ -410,11 +399,7 @@ const paths: ZodOpenApiPathsObject = {
   
 };
 
-// Explicit type annotation here, not stylistic: createDocument's return
-// type (OpenAPIObject) is defined inside zod-openapi's internals but isn't
-// part of its public exports, so TypeScript can't "name" it on its own.
-// ReturnType<typeof createDocument> lets us reference that exact type
-// without ever needing to import or name it directly.
+// The library does not publicly export createDocument's return type.
 const swaggerSpec: ReturnType<typeof createDocument> = createDocument({
   openapi: "3.1.0",
   info: {

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "../src/app";
 import Patient from "../src/models/patient.model";
 import Appointment from "../src/models/appointment.model";
+import ClinicVisit from "../src/models/clinicVisit.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
@@ -17,6 +18,7 @@ let doctorId: string;
 
 let testPatientId: string;
 let createdAppointmentId: string | null = null;
+const appointmentIds: string[] = [];
 
 
 beforeAll(async () => {
@@ -63,13 +65,15 @@ afterAll(async () => {
   if (createdAppointmentId) {
     await Appointment.findByIdAndDelete(createdAppointmentId);
   }
+  await Appointment.deleteMany({ _id: { $in: appointmentIds } });
+  await ClinicVisit.deleteMany({ appointmentId: { $in: appointmentIds } });
 
   await mongoose.connection.close();
 
 });
 
 
-describe("Appointments - Create (staff and nurse)", () => {
+describe("Appointments - Create (staff, nurse, and doctor)", () => {
 
   it("allows STAFF to book an appointment, defaulting to pending status", async () => {
 
@@ -127,6 +131,38 @@ describe("Appointments - Create (staff and nurse)", () => {
 
 
 describe("Appointments - Shared view access", () => {
+
+  it("rejects overlapping appointments for the same doctor", async () => {
+    const first = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({ patientId: testPatientId, doctorId, appointmentDate: "2026-08-15T09:00:00.000Z", durationMinutes: 60, reason: "First slot" });
+    expect(first.status).toBe(201);
+    appointmentIds.push(first.body.data._id);
+
+    const overlap = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({ patientId: testPatientId, doctorId, appointmentDate: "2026-08-15T09:30:00.000Z", durationMinutes: 30, reason: "Overlapping slot" });
+    expect(overlap.status).toBe(409);
+  });
+
+  it("allows a DOCTOR to schedule their own follow-up", async () => {
+    const res = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        patientId: testPatientId,
+        appointmentDate: "2026-07-03T09:00:00.000Z",
+        reason: "Clinical follow-up",
+        type: "follow_up",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.doctorId).toBe(doctorId);
+    expect(res.body.data.type).toBe("follow_up");
+    appointmentIds.push(res.body.data._id);
+  });
 
   it("DOCTOR can view the appointment list", async () => {
 
@@ -193,4 +229,76 @@ describe("Appointments - Status updates (staff and nurse, no real delete)", () =
 
   });
 
+});
+
+describe("Appointments - Check-in flow", () => {
+  it("creates one linked queue visit and safely reuses it", async () => {
+    const appointment = await Appointment.create({
+      patientId: testPatientId,
+      doctorId,
+      appointmentDate: new Date(),
+      reason: "TEST linked check-in",
+      status: "confirmed",
+      createdBy: staffId,
+    });
+    appointmentIds.push(String(appointment._id));
+
+    const first = await request(app)
+      .post(`/api/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({});
+
+    expect(first.status).toBe(201);
+    expect(first.body.data.appointment.status).toBe("checked_in");
+    expect(first.body.data.visit.appointmentId).toBe(String(appointment._id));
+    expect(first.body.data.visit.status).toBe("triage");
+
+    const second = await request(app)
+      .post(`/api/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+
+    expect(second.status).toBe(200);
+    expect(second.body.data.visit._id).toBe(first.body.data.visit._id);
+    expect(await ClinicVisit.countDocuments({ appointmentId: appointment._id })).toBe(1);
+  });
+
+  it("does not check in cancelled appointments", async () => {
+    const appointment = await Appointment.create({
+      patientId: testPatientId,
+      appointmentDate: new Date(),
+      reason: "TEST cancelled check-in",
+      status: "cancelled",
+      createdBy: staffId,
+    });
+    appointmentIds.push(String(appointment._id));
+
+    const response = await request(app)
+      .post(`/api/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({});
+
+    expect(response.status).toBe(409);
+  });
+
+  it("allows a doctor to start an assigned appointment", async () => {
+    const appointment = await Appointment.create({
+      patientId: testPatientId,
+      doctorId,
+      appointmentDate: new Date(),
+      reason: "TEST doctor consultation start",
+      status: "confirmed",
+      createdBy: staffId,
+    });
+    appointmentIds.push(String(appointment._id));
+
+    const response = await request(app)
+      .post(`/api/appointments/${appointment._id}/check-in`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({});
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.appointment.status).toBe("checked_in");
+    expect(response.body.data.visit.assignedDoctorId).toBe(doctorId);
+  });
 });

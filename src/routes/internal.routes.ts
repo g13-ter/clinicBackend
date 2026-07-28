@@ -5,12 +5,7 @@ import logger from "../utils/logger";
 
 const router = express.Router();
 
-// POST /api/internal/send-reminders
-// Triggers the 24h-before appointment reminder sweep. Called either by
-// the in-process node-cron job (server.ts) or, in environments where the
-// process doesn't stay running continuously, by an external scheduler
-// (e.g. Railway Cron, a GitHub Actions cron job) hitting this endpoint
-// with the X-Internal-Api-Key header.
+// Trigger the reminder sweep from the internal or external scheduler.
 router.post("/send-reminders", requireInternalKey, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const result = await sendDueReminders();

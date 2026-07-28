@@ -2,23 +2,57 @@ import PurchaseRequest, { IPurchaseRequest, PurchaseRequestStatus } from "../mod
 import Medicine from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
+import { Types } from "mongoose";
+import InventoryBatch from "../models/inventoryBatch.model";
+import { withMongoTransaction } from "../utils/transaction";
+
+interface CreatePurchaseRequestInput {
+  medicineId?: string;
+  itemName?: string;
+  unit?: string;
+  category?: string;
+  quantityRequested: number;
+  reason: string;
+  requestedBy: Types.ObjectId;
+}
+
+interface ReviewPurchaseRequestInput {
+  status: "approved" | "rejected";
+  reviewNotes?: string;
+  reviewedBy: Types.ObjectId;
+}
+
+interface PurchaseRequestFilter {
+  status?: PurchaseRequestStatus;
+}
 
 export class PurchaseRequestService {
-  async createRequest(data: {
-    medicineId: string;
-    quantityRequested: number;
-    reason: string;
-    requestedBy: any;
-  }): Promise<IPurchaseRequest> {
-    const medicine = await Medicine.findById(data.medicineId);
+  async createRequest(data: CreatePurchaseRequestInput): Promise<IPurchaseRequest> {
+    if (data.medicineId) {
+      const medicine = await Medicine.findById(data.medicineId);
+      if (!medicine) throw new AppError("Medicine not found", 404);
 
-    if (!medicine) {
-      throw new AppError("Medicine not found", 404);
+      return await PurchaseRequest.create({
+        medicineId: medicine._id,
+        requestType: "restock",
+        itemName: medicine.name,
+        unit: medicine.unit,
+        ...(medicine.category ? { category: medicine.category } : {}),
+        quantityRequested: data.quantityRequested,
+        reason: data.reason,
+        requestedBy: data.requestedBy,
+      });
+    }
+
+    if (!data.itemName?.trim() || !data.unit?.trim()) {
+      throw new AppError("Medicine name and unit are required for a new item", 400);
     }
 
     return await PurchaseRequest.create({
-      medicineId: medicine._id,
-      itemName: medicine.name,
+      requestType: "new_item",
+      itemName: data.itemName.trim(),
+      unit: data.unit.trim(),
+      ...(data.category?.trim() ? { category: data.category.trim() } : {}),
       quantityRequested: data.quantityRequested,
       reason: data.reason,
       requestedBy: data.requestedBy,
@@ -29,7 +63,7 @@ export class PurchaseRequestService {
     { limit, skip }: PaginationParams,
     status?: PurchaseRequestStatus
   ): Promise<{ requests: IPurchaseRequest[]; total: number }> {
-    const filter: any = {};
+    const filter: PurchaseRequestFilter = {};
     if (status) filter.status = status;
 
     const [requests, total] = await Promise.all([
@@ -59,12 +93,10 @@ export class PurchaseRequestService {
     return purchaseRequest;
   }
 
-  // Admin approves or rejects a pending request. Once decided, a request is
-  // final - it cannot be reviewed again (mirrors the real workflow: the
-  // decision has already been acted on outside the system).
+  // Review decisions are final.
   async reviewRequest(
     id: string,
-    data: { status: "approved" | "rejected"; reviewNotes?: string; reviewedBy: any }
+    data: ReviewPurchaseRequestInput,
   ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
     const before = await PurchaseRequest.findById(id);
 
@@ -76,7 +108,7 @@ export class PurchaseRequestService {
       throw new AppError(`This request has already been ${before.status}`, 400);
     }
 
-    const updatePayload: any = {
+    const updatePayload: Partial<IPurchaseRequest> = {
       status: data.status,
       reviewedBy: data.reviewedBy,
       reviewedAt: new Date(),
@@ -93,5 +125,124 @@ export class PurchaseRequestService {
     }
 
     return { before, after };
+  }
+
+  async markOrdered(
+    id: string,
+    data: { supplier?: string; estimatedCost?: number; reviewedBy: Types.ObjectId },
+  ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
+    const before = await PurchaseRequest.findById(id);
+    if (!before) throw new AppError("Purchase request not found", 404);
+    if (before.status !== "approved") {
+      throw new AppError("Only an approved request can be marked ordered", 409);
+    }
+    const after = await PurchaseRequest.findOneAndUpdate(
+      { _id: id, status: "approved" },
+      {
+        status: "ordered",
+        orderedAt: new Date(),
+        reviewedBy: data.reviewedBy,
+        ...(data.supplier ? { supplier: data.supplier } : {}),
+        ...(data.estimatedCost !== undefined ? { estimatedCost: data.estimatedCost } : {}),
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Purchase request status changed. Refresh and try again.", 409);
+    return { before, after };
+  }
+
+  async cancelRequest(
+    id: string,
+    data: { reviewNotes?: string; reviewedBy: Types.ObjectId },
+  ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
+    const before = await PurchaseRequest.findById(id);
+    if (!before) throw new AppError("Purchase request not found", 404);
+    if (!["pending", "approved", "ordered"].includes(before.status)) {
+      throw new AppError(`A ${before.status} request cannot be cancelled`, 409);
+    }
+
+    const after = await PurchaseRequest.findOneAndUpdate(
+      { _id: id, status: { $in: ["pending", "approved", "ordered"] } },
+      {
+        status: "cancelled",
+        reviewedBy: data.reviewedBy,
+        reviewedAt: new Date(),
+        ...(data.reviewNotes ? { reviewNotes: data.reviewNotes } : {}),
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) {
+      throw new AppError("Purchase request status changed. Refresh and try again.", 409);
+    }
+    return { before, after };
+  }
+
+  async receiveRequest(
+    id: string,
+    data: {
+      batchNumber: string;
+      quantityReceived: number;
+      expiryDate?: Date;
+      supplier?: string;
+      receivedBy: Types.ObjectId;
+    },
+  ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest; medicineId: string }> {
+    return withMongoTransaction(async (session) => {
+      const requestQuery = PurchaseRequest.findById(id);
+      if (session) requestQuery.session(session);
+      const before = await requestQuery;
+      if (!before) throw new AppError("Purchase request not found", 404);
+      if (!["approved", "ordered"].includes(before.status)) {
+        throw new AppError("Only an approved or ordered request can be received", 409);
+      }
+
+      let medicine = before.medicineId
+        ? await Medicine.findById(before.medicineId).session(session ?? null)
+        : null;
+      if (!medicine) {
+        const [createdMedicine] = await Medicine.create([{
+          name: before.itemName,
+          quantity: 0,
+          unit: before.unit || "units",
+          lowStockThreshold: 10,
+          ...(before.category ? { category: before.category } : {}),
+          ...(data.supplier || before.supplier ? { supplier: data.supplier || before.supplier } : {}),
+          lastUpdatedBy: data.receivedBy,
+        }], session ? { session } : {});
+        medicine = createdMedicine ?? null;
+      }
+      if (!medicine) throw new Error("Received medicine was not created");
+
+      await InventoryBatch.create([{
+        medicineId: medicine._id,
+        batchNumber: data.batchNumber,
+        quantityReceived: data.quantityReceived,
+        quantityRemaining: data.quantityReceived,
+        ...(data.expiryDate ? { expiryDate: data.expiryDate } : {}),
+        ...(data.supplier || before.supplier ? { supplier: data.supplier || before.supplier } : {}),
+        receivedBy: data.receivedBy,
+      }], session ? { session } : {});
+      await Medicine.findByIdAndUpdate(
+        medicine._id,
+        {
+          $inc: { quantity: data.quantityReceived },
+          $set: { lastUpdatedBy: data.receivedBy, ...(data.supplier ? { supplier: data.supplier } : {}) },
+        },
+        session ? { session } : {},
+      );
+      const after = await PurchaseRequest.findOneAndUpdate(
+        { _id: id, status: { $in: ["approved", "ordered"] } },
+        {
+          status: "received",
+          medicineId: medicine._id,
+          receivedAt: new Date(),
+          receivedBy: data.receivedBy,
+          ...(data.supplier ? { supplier: data.supplier } : {}),
+        },
+        { returnDocument: "after", ...(session ? { session } : {}) },
+      );
+      if (!after) throw new AppError("Purchase request status changed. Refresh and try again.", 409);
+      return { before, after, medicineId: String(medicine._id) };
+    });
   }
 }

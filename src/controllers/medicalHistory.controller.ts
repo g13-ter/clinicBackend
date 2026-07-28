@@ -5,7 +5,7 @@ import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
-import { mailer } from "../services/mailer.service";
+import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger from "../utils/logger";
 
 const medicalHistoryService = new MedicalHistoryService();
@@ -15,10 +15,11 @@ const userService = new UserService();
 export const createMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { patientId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies } = req.body;
+    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies } = req.body;
 
     const { entry, stockChanges } = await medicalHistoryService.createMedicalHistory({
       patientId,
+      visitId,
       diagnosis,
       prescription,
       prescribedItems,
@@ -38,8 +39,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       path: req.originalUrl,
     });
 
-    // Each prescribed item deducted real stock - audit-log it as a
-    // Medicine update too, same as a manual inventory edit would be.
+    // Audit prescription deductions as inventory updates.
     for (const change of stockChanges) {
       logAudit({
         action: "update",
@@ -55,13 +55,11 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
 
     res.status(201).json({ success: true, message: "Medical history entry created successfully", data: entry });
 
-    // Fire-and-forget: response already sent above, email failure must
-    // never affect it. Only alert for items that just CROSSED into a
-    // concerning status because of this prescription.
+    // Alert only for items that entered a concerning status.
     const concerningStatuses = ["Low Stock", "Out of Stock", "Expired"];
     const newlyConcerning = stockChanges.filter((change) => {
       const before = { ...change.medicine.toObject(), quantity: change.previousQuantity };
-      const beforeStatus = computeStatus(before as any);
+      const beforeStatus = computeStatus(before);
       const afterStatus = computeStatus(change.medicine);
       return concerningStatuses.includes(afterStatus) && beforeStatus !== afterStatus;
     });
@@ -73,12 +71,16 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
           await Promise.all(
             newlyConcerning.flatMap((change) =>
               adminEmails.map((to) =>
-                mailer.sendLowStockAlert({
-                  to,
-                  itemName: change.medicine.name,
-                  quantity: change.medicine.quantity,
-                  unit: change.medicine.unit,
-                  status: computeStatus(change.medicine),
+                enqueueNotification({
+                  kind: "low_stock",
+                  recipient: to,
+                  dedupeKey: `low-stock:${change.medicine._id}:${computeStatus(change.medicine)}:${change.medicine.quantity}:${to}`,
+                  payload: {
+                    itemName: change.medicine.name,
+                    quantity: change.medicine.quantity,
+                    unit: change.medicine.unit,
+                    status: computeStatus(change.medicine),
+                  },
                 })
               )
             )

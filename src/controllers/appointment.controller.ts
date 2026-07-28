@@ -5,7 +5,7 @@ import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
-import { mailer } from "../services/mailer.service";
+import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger from "../utils/logger";
 
 const appointmentService = new AppointmentService();
@@ -16,14 +16,19 @@ const userService = new UserService();
 export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { patientId, doctorId, appointmentDate, reason, notes } = req.body;
+    const actor = getAuthenticatedUser(req);
+    const { patientId, doctorId, appointmentDate, reason, notes, durationMinutes, type, sourceVisitId } = req.body;
+    const assignedDoctorId = actor.role === "doctor" ? actor.id : doctorId;
 
     const appointment = await appointmentService.createAppointment({
       patientId,
-      doctorId,
+      doctorId: assignedDoctorId,
       appointmentDate,
       reason,
       notes,
+      durationMinutes,
+      type,
+      sourceVisitId,
       createdBy: getAuthenticatedObjectId(req),
     });
 
@@ -39,25 +44,28 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 
     res.status(201).json({ success: true, message: "Appointment created successfully", data: appointment });
 
-    // Fire-and-forget: never let an email failure affect the API response,
-    // which has already been sent above.
+    // Email failures must not affect the completed request.
     (async () => {
       try {
         const patient = await patientService.getPatientById(patientId);
         if (!patient.email) return;
 
         let doctorName: string | undefined;
-        if (doctorId) {
-          const doctor = await userService.getUserById(doctorId);
+        if (assignedDoctorId) {
+          const doctor = await userService.getUserById(assignedDoctorId);
           doctorName = doctor.name;
         }
 
-        await mailer.sendAppointmentConfirmation({
-          to: patient.email,
-          patientName: `${patient.firstName} ${patient.lastName}`,
-          appointmentDate: appointment.appointmentDate,
-          reason: appointment.reason,
-          ...(doctorName ? { doctorName } : {}),
+        await enqueueNotification({
+          kind: "appointment_confirmation",
+          recipient: patient.email,
+          dedupeKey: `appointment-confirmation:${appointment._id}:${patient.email}`,
+          payload: {
+            patientName: `${patient.firstName} ${patient.lastName}`,
+            appointmentDate: appointment.appointmentDate.toISOString(),
+            reason: appointment.reason,
+            ...(doctorName ? { doctorName } : {}),
+          },
         });
       } catch (emailError) {
         logger.error("Failed to send appointment confirmation email:", emailError);
@@ -128,6 +136,55 @@ export const updateAppointment = async (req: Request, res: Response, next: NextF
     });
 
     res.status(200).json({ success: true, message: "Appointment updated successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completeAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await appointmentService.completeAppointment(id, actor.id, actor.role);
+
+    logAudit({
+      action: "update",
+      resource: "Appointment",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({ success: true, message: "Appointment completed successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const checkInAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const result = await appointmentService.checkInAppointment(id, actor.id, actor.role);
+
+    logAudit({
+      action: "update",
+      resource: "Appointment",
+      resourceId: id,
+      performedBy: actor.id,
+      after: result.appointment.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(result.created ? 201 : 200).json({
+      success: true,
+      message: result.created ? "Student checked in successfully" : "Student is already checked in",
+      data: { appointment: result.appointment, visit: result.visit },
+    });
   } catch (error) {
     next(error);
   }

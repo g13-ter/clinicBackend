@@ -3,6 +3,8 @@ import Medicine, { IMedicine } from "../models/medicine.model";
 import Appointment from "../models/appointment.model";
 import MedicalHistory from "../models/medicalHistory.model";
 import PurchaseRequest from "../models/purchaseRequest.model";
+import MedicineDispense from "../models/medicineDispense.model";
+import Patient from "../models/patient.model";
 import { AppError } from "../middleware/error.middleware";
 
 interface PopulatedPatientRef {
@@ -39,45 +41,56 @@ export interface ReportStats {
   periodStart: Date;
   periodEnd: Date;
 
-  // Section II - Clinic Attendance
-  // "Students" reflects every clinic visit in the period, broken down by
-  // the visiting patient's gender. Teaching/Non-Teaching Staff are not
-  // tracked at all - this system only manages student patient records,
-  // so those rows are honestly reported as not applicable rather than
-  // guessed at.
+  // Student visits by gender; staff attendance is not tracked.
   studentAttendance: GenderBreakdown;
+  uniqueStudentsServed: number;
 
-  // Section III - Common Reasons for Clinic Visits
-  // Every distinct complaint recorded, sorted by frequency. The original
-  // template lists fixed categories (Headache, Fever, etc.) but this
-  // system records free-text complaints, so we report what was actually
-  // logged instead of forcing it into a fixed list that might not match.
+  // Free-text complaints sorted by frequency.
   complaintCounts: ComplaintCount[];
 
-  // Section IV - Medicines and Supplies
-  // This system tracks CURRENT stock, not a historical dispensing log,
-  // so "quantity used" during the period cannot be computed accurately.
-  // We report current remaining stock honestly instead of fabricating
-  // a usage figure.
+  // Current stock only; historical usage is not tracked.
   medicineStock: MedicineStockRow[];
 
   // Section VIII - Issues and Concerns
   lowStockMedicines: MedicineStockRow[];
 
-  // Appointments booked within the period, broken down by their CURRENT
-  // status (a "confirmed" appointment booked in-period may have since
-  // been completed/cancelled by the time the report runs - that's the
-  // accurate real-time picture, not a snapshot frozen at booking time).
+  // Current status of appointments booked during the period.
   appointmentStats: AppointmentBreakdown;
 
-  // Doctor consultations (medical history entries) recorded in the period.
-  consultationsCount: number;
+  physicianMedicalRecordsCount: number;
+  nursingAssessmentsCount: number;
+  referralCount: number;
+  emergencyCount: number;
+  referrals: { facility: string; reason: string; outcome?: string }[];
+  hasTestData: boolean;
 
-  // Pending purchase requests awaiting admin review right now (a current
-  // snapshot, not period-filtered - same reasoning as medicine stock above:
-  // what matters operationally is what's outstanding today, not what was
-  // pending at some point during the period).
+  // Current pending purchase requests, not period-filtered.
   pendingPurchaseRequestsCount: number;
+}
+
+export interface InventoryExportRow {
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  lowStockThreshold: number;
+  expiryDate: Date | null;
+  status: string;
+}
+
+export interface MedicineUsageExportRow {
+  name: string;
+  unit: string;
+  quantityDispensed: number;
+  dispenseCount: number;
+}
+
+export interface VaccinationExportRow {
+  studentId: string;
+  studentName: string;
+  vaccine: string;
+  dateAdministered: Date | null;
+  notes: string;
 }
 
 export class ReportService {
@@ -90,11 +103,11 @@ export class ReportService {
     const appointmentDateFilter = { appointmentDate: { $gte: startDate, $lte: endDate } };
     const consultationDateFilter = { dateRecorded: { $gte: startDate, $lte: endDate } };
 
-    const [visitsInPeriod, allMedicines, appointmentsInPeriod, consultationsCount, pendingPurchaseRequestsCount] =
+    const [visitsInPeriod, allMedicines, appointmentsInPeriod, physicianMedicalRecordsCount, pendingPurchaseRequestsCount] =
       await Promise.all([
         ClinicVisit.find(visitDateFilter)
           .populate("patientId", "gender")
-          .select("complaint patientId"),
+          .select("complaint patientId nursingAssessment isEmergency status referralFacility referralReason referralOutcome"),
 
         Medicine.find().select("name quantity unit lowStockThreshold"),
 
@@ -102,11 +115,11 @@ export class ReportService {
 
         MedicalHistory.countDocuments(consultationDateFilter),
 
-        // Current snapshot, not period-filtered - see note on the interface above.
+        // Current snapshot.
         PurchaseRequest.countDocuments({ status: "pending" }),
       ]);
 
-    // ----- Student attendance by gender -----
+    // Student attendance by gender
     let male = 0;
     let female = 0;
 
@@ -114,8 +127,7 @@ export class ReportService {
       const patient = visit.patientId as PopulatedPatientRef | null;
       if (patient?.gender === "Male") male++;
       else if (patient?.gender === "Female") female++;
-      // a visit whose patient record was deleted/unlinked is still
-      // counted in the total below, just not in the gender split
+      // Count unlinked visits in the total but not the gender split.
     }
 
     const studentAttendance: GenderBreakdown = {
@@ -123,8 +135,9 @@ export class ReportService {
       female,
       total: visitsInPeriod.length,
     };
+    const uniqueStudentsServed = new Set(visitsInPeriod.map((visit) => String(visit.patientId?._id ?? visit.patientId))).size;
 
-    // ----- Common complaints -----
+    // Common complaints
     const complaintMap = new Map<string, number>();
     for (const visit of visitsInPeriod) {
       const key = visit.complaint?.trim() || "Unspecified";
@@ -135,9 +148,7 @@ export class ReportService {
       .map(([complaint, count]) => ({ complaint, count }))
       .sort((a, b) => b.count - a.count);
 
-    // ----- Medicine stock (current snapshot, not period-filtered - the
-    // report should reflect what's on hand right now, not what was on
-    // hand at some point during the period) -----
+    // Current medicine stock
     const medicineStock: MedicineStockRow[] = allMedicines.map((med: IMedicine) => ({
       name: med.name,
       remainingStock: med.quantity,
@@ -146,8 +157,19 @@ export class ReportService {
     }));
 
     const lowStockMedicines = medicineStock.filter((med) => med.isLowStock);
+    const nursingAssessmentsCount = visitsInPeriod.filter((visit) => Boolean(visit.nursingAssessment?.trim())).length;
+    const referrals = visitsInPeriod
+      .filter((visit) => visit.status === "referred")
+      .map((visit) => ({
+        facility: visit.referralFacility || "Facility not recorded",
+        reason: visit.referralReason || "Reason not recorded",
+        ...(visit.referralOutcome ? { outcome: visit.referralOutcome } : {}),
+      }));
+    const emergencyCount = visitsInPeriod.filter((visit) => visit.isEmergency).length;
+    const hasTestData = visitsInPeriod.some((visit) => /\btest[_\s-]/i.test(visit.complaint || "")) ||
+      allMedicines.some((medicine) => /\btest[_\s-]/i.test(medicine.name));
 
-    // ----- Appointment breakdown by current status -----
+    // Appointments by current status
     const appointmentStats: AppointmentBreakdown = {
       total: appointmentsInPeriod.length,
       pending: appointmentsInPeriod.filter((a) => a.status === "pending").length,
@@ -164,8 +186,107 @@ export class ReportService {
       medicineStock,
       lowStockMedicines,
       appointmentStats,
-      consultationsCount,
+      uniqueStudentsServed,
+      physicianMedicalRecordsCount,
+      nursingAssessmentsCount,
+      referralCount: referrals.length,
+      emergencyCount,
+      referrals,
+      hasTestData,
       pendingPurchaseRequestsCount,
     };
+  }
+
+  async getInventoryExport(): Promise<InventoryExportRow[]> {
+    const medicines = await Medicine.find()
+      .select("name category quantity unit lowStockThreshold expiryDate")
+      .sort({ name: 1 })
+      .lean();
+    const now = new Date();
+
+    return medicines.map((medicine) => {
+      const expiryDate = medicine.expiryDate ?? null;
+      const status = expiryDate && expiryDate < now
+        ? "Expired"
+        : medicine.quantity <= 0
+          ? "Out of stock"
+          : medicine.quantity <= medicine.lowStockThreshold
+            ? "Low stock"
+            : "In stock";
+
+      return {
+        name: medicine.name,
+        category: medicine.category ?? "",
+        quantity: medicine.quantity,
+        unit: medicine.unit,
+        lowStockThreshold: medicine.lowStockThreshold,
+        expiryDate,
+        status,
+      };
+    });
+  }
+
+  async getMedicineUsageExport(
+    startDate: Date,
+    endDate: Date,
+  ): Promise<MedicineUsageExportRow[]> {
+    return MedicineDispense.aggregate<MedicineUsageExportRow>([
+      { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
+      {
+        $group: {
+          _id: "$medicineId",
+          quantityDispensed: { $sum: "$quantity" },
+          dispenseCount: { $sum: 1 },
+          unit: { $first: "$unit" },
+        },
+      },
+      {
+        $lookup: {
+          from: "medicines",
+          localField: "_id",
+          foreignField: "_id",
+          as: "medicine",
+        },
+      },
+      { $unwind: { path: "$medicine", preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          name: { $ifNull: ["$medicine.name", "Archived medicine"] },
+          unit: 1,
+          quantityDispensed: 1,
+          dispenseCount: 1,
+        },
+      },
+      { $sort: { quantityDispensed: -1, name: 1 } },
+    ]);
+  }
+
+  async getVaccinationExport(): Promise<VaccinationExportRow[]> {
+    const students = await Patient.find({ isActive: true })
+      .select("studentId firstName lastName immunizations")
+      .sort({ lastName: 1, firstName: 1 })
+      .lean();
+
+    return students.flatMap((student) => {
+      const studentName = `${student.firstName} ${student.lastName}`;
+      if (!student.immunizations?.length) {
+        return [{
+          studentId: student.studentId,
+          studentName,
+          vaccine: "No immunization recorded",
+          dateAdministered: null,
+          notes: "",
+        }];
+      }
+
+      return student.immunizations.map((immunization) => ({
+        studentId: student.studentId,
+        studentName,
+        vaccine: immunization.vaccine,
+        dateAdministered: immunization.dateAdministered ?? null,
+        notes: immunization.notes ?? "",
+      }));
+    });
   }
 }
