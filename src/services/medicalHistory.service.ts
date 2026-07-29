@@ -32,7 +32,7 @@ export class MedicalHistoryService {
           if (!sourceVisit) {
             throw new AppError("Clinic visit not found for this consultation", 404);
           }
-          if (!sourceVisit.readyForDoctor) {
+          if (!sourceVisit.readyForDoctor && !sourceVisit.isEmergency) {
             throw new AppError(
               "A nurse must complete triage before a physician consultation can be saved",
               409,

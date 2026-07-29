@@ -149,7 +149,7 @@ export const updateVisitStatus = async (req: Request, res: Response, next: NextF
     const userId = actor.id;
     if (actor.role === "doctor" && req.body.status === "in_consultation") {
       const visit = await clinicVisitService.getVisitById(id);
-      if (!visit.readyForDoctor) {
+      if (!visit.readyForDoctor && !visit.isEmergency) {
         throw new AppError(
           "A nurse must record triage and mark the student ready before the doctor starts consultation",
           409,
