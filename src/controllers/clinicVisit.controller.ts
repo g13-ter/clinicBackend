@@ -84,9 +84,25 @@ export const getTodayVisitCount = async (req: Request, res: Response, next: Next
 export const getQueue = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const queue = await clinicVisitService.getQueue();
-    const isStaff = getAuthenticatedUser(req).role === "staff";
+    const actor = getAuthenticatedUser(req);
+    const isStaff = actor.role === "staff";
+    const roleVisibleQueue = actor.role === "doctor"
+      ? queue.filter((visit) => {
+          const visibleStatus =
+            visit.status === "ready_for_doctor" ||
+            visit.status === "in_consultation" ||
+            visit.status === "paused";
+          if (!visibleStatus && !visit.isEmergency) return false;
+
+          if (!visit.assignedDoctorId) return true;
+          const assignedDoctor = visit.assignedDoctorId as unknown as {
+            _id?: unknown;
+          };
+          return String(assignedDoctor._id ?? visit.assignedDoctorId) === actor.id;
+        })
+      : queue;
     const data = isStaff
-      ? queue.map((visit) => ({
+      ? roleVisibleQueue.map((visit) => ({
           _id: visit._id,
           patientId: visit.patientId,
           appointmentId: visit.appointmentId,
@@ -95,7 +111,7 @@ export const getQueue = async (req: Request, res: Response, next: NextFunction):
           status: visit.status,
           isActive: visit.isActive,
         }))
-      : queue;
+      : roleVisibleQueue;
     res.status(200).json({ success: true, message: "Student queue retrieved successfully", data });
   } catch (error) {
     next(error);
@@ -120,7 +136,7 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Student marked ready for consultation", data: after });
+    res.status(200).json({ success: true, message: "Student marked ready for doctor", data: after });
   } catch (error) {
     next(error);
   }

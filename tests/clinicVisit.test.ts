@@ -164,6 +164,25 @@ describe("Clinic Visits - View permissions", () => {
 
   });
 
+  it("shows a visit in the doctor queue only after the nurse marks it ready", async () => {
+    const before = await request(app)
+      .get("/api/visits/queue")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(before.body.data.some((visit: { _id: string }) => visit._id === createdVisitId)).toBe(false);
+
+    const ready = await request(app)
+      .put(`/api/visits/${createdVisitId}/ready`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+    expect(ready.status).toBe(200);
+    expect(ready.body.data.status).toBe("ready_for_doctor");
+
+    const after = await request(app)
+      .get("/api/visits/queue")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(after.body.data.some((visit: { _id: string }) => visit._id === createdVisitId)).toBe(true);
+  });
+
 
   it("blocks ADMIN from viewing clinic visits (medical data)", async () => {
 

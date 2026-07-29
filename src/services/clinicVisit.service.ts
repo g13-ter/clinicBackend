@@ -133,6 +133,17 @@ export class ClinicVisitService {
     if (!before) {
       throw new AppError("Clinic visit not found", 404);
     }
+    const missingVitals = [
+      !before.bloodPressure ? "blood pressure" : "",
+      before.temperature == null ? "temperature" : "",
+      before.pulseRate == null ? "pulse rate" : "",
+    ].filter(Boolean);
+    if (missingVitals.length > 0) {
+      throw new AppError(
+        `Record ${missingVitals.join(", ")} before marking the student ready for doctor`,
+        409,
+      );
+    }
     this.assertTransition(before.status, "ready_for_doctor");
 
     const after = await ClinicVisit.findByIdAndUpdate(
