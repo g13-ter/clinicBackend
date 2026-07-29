@@ -123,7 +123,8 @@ export class ClinicVisitService {
       .populate("appointmentId", "appointmentDate reason status")
       .populate("assignedDoctorId", "name role")
       .populate("recordedBy", "name role")
-      .sort({ visitDate: 1 });
+      // Emergencies always appear first, then preserve FIFO order.
+      .sort({ isEmergency: -1, visitDate: 1 });
   }
 
   async markReadyForDoctor(id: string, updatedBy: string): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
