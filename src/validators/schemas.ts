@@ -83,17 +83,28 @@ export const advanceSchoolYearSchema = z.object({
 
 // ===== CLINIC VISIT =====
 
+const bloodPressureSchema = z
+  .string()
+  .trim()
+  .regex(/^\d{2,3}\/\d{2,3}$/, "Blood pressure must use systolic/diastolic, for example 120/80")
+  .refine((value) => {
+    const [systolic = 0, diastolic = 0] = value.split("/").map(Number);
+    return systolic >= 60 && systolic <= 250 &&
+      diastolic >= 40 && diastolic <= 150 &&
+      systolic > diastolic;
+  }, "Blood pressure is outside the supported clinical range");
+
 export const createVisitSchema = z.object({
   patientId: z.string().min(1, "Patient ID is required"),
   complaint: z.string().min(1, "Complaint is required"),
   treatment: z.string().optional(),
   notes: z.string().optional(),
-  bloodPressure: z.string().optional(),
-  temperature: z.number().optional(),
-  pulseRate: z.number().optional(),
-  respiratoryRate: z.number().int().positive().optional(),
-  heightCm: z.number().positive().optional(),
-  weightKg: z.number().positive().optional(),
+  bloodPressure: bloodPressureSchema.optional(),
+  temperature: z.number().min(30, "Temperature must be at least 30°C").max(45, "Temperature must not exceed 45°C").optional(),
+  pulseRate: z.number().int().min(30, "Pulse rate must be at least 30 bpm").max(250, "Pulse rate must not exceed 250 bpm").optional(),
+  respiratoryRate: z.number().int().min(5, "Respiratory rate must be at least 5").max(80, "Respiratory rate must not exceed 80").optional(),
+  heightCm: z.number().min(30, "Height must be at least 30 cm").max(250, "Height must not exceed 250 cm").optional(),
+  weightKg: z.number().min(1, "Weight must be at least 1 kg").max(500, "Weight must not exceed 500 kg").optional(),
   nursingAssessment: z.string().optional(),
   consultationFindings: z.string().optional(),
   nursingInterventions: z.string().optional(),

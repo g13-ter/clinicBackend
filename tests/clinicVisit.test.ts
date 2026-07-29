@@ -125,6 +125,28 @@ describe("Clinic Visits - Create (clinical roles)", () => {
 
   });
 
+  it("rejects implausible vital signs with field-specific validation", async () => {
+    const res = await request(app)
+      .post("/api/visits")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: testPatientId,
+        complaint: "Vital validation",
+        bloodPressure: "129/23",
+        temperature: 23,
+        pulseRate: 4324,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "bloodPressure" }),
+        expect.objectContaining({ field: "temperature" }),
+        expect.objectContaining({ field: "pulseRate" }),
+      ]),
+    );
+  });
+
 });
 
 
