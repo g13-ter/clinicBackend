@@ -13,7 +13,7 @@ import appointmentRoutes from "./routes/appointment.routes";
 import medicineRoutes from "./routes/medicine.routes";
 import healthRoutes from "./routes/health.routes";
 import { generalLimiter } from "./middleware/rateLimit.middleware";
-import { notFoundHandler, errorHandler } from "./middleware/error.middleware";
+import { AppError, notFoundHandler, errorHandler } from "./middleware/error.middleware";
 import auditLogRoutes from "./routes/auditLog.routes";
 import reportRoutes from "./routes/report.routes";
 import purchaseRequestRoutes from "./routes/purchaseRequest.routes";
@@ -36,16 +36,36 @@ app.use(helmet());
 // Accept one or more comma-separated origins.
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((origin) => {
+    const trimmed = origin.trim();
+    try {
+      return new URL(trimmed).origin;
+    } catch {
+      return trimmed;
+    }
+  })
   .filter(Boolean);
+
+const isDevelopmentLoopbackOrigin = (origin: string): boolean => {
+  if (process.env.NODE_ENV === "production") return false;
+  try {
+    const url = new URL(origin);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      ["localhost", "127.0.0.1", "::1"].includes(url.hostname)
+    );
+  } catch {
+    return false;
+  }
+};
 
 app.use(cors({
   origin: (origin, callback) => {
     // Allow non-browser and same-origin requests.
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || isDevelopmentLoopbackOrigin(origin)) {
       callback(null, true);
     } else {
-      callback(new Error(`Not allowed by CORS: ${origin}`));
+      callback(new AppError("Request origin is not allowed", 403));
     }
   },
   credentials: true,

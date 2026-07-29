@@ -114,6 +114,26 @@ describe("Auth - Login", () => {
 
 describe("Auth - Security", () => {
 
+  it("allows loopback frontend aliases during local development", async () => {
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("Origin", "http://127.0.0.1:5173")
+      .send({ email: TEST_EMAIL, password: "wrongpassword" });
+
+    expect(res.status).toBe(401);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://127.0.0.1:5173");
+  });
+
+  it("rejects unapproved browser origins with a clear forbidden response", async () => {
+    const res = await request(app)
+      .post("/api/auth/login")
+      .set("Origin", "https://malicious.example")
+      .send({ email: TEST_EMAIL, password: "wrongpassword" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe("Request origin is not allowed");
+  });
+
   it("rejects NoSQL injection attempts in the email field", async () => {
 
     const res = await request(app)
