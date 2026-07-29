@@ -40,11 +40,11 @@ router.get(
 );
 
 
-// Staff checks in; nurses and doctors may record consultations.
+// Staff checks in and nurses may create triage/clinical visit records.
 router.post(
   "/",
   protect,
-  allowRoles("staff", "nurse", "doctor"),
+  allowRoles("staff", "nurse"),
   validateBody(createVisitSchema),
   createVisit
 );

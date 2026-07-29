@@ -25,6 +25,25 @@ export class MedicalHistoryService {
           if (await existingQuery) {
             throw new AppError("This consultation has already been saved", 409);
           }
+
+          const visitQuery = ClinicVisit.findById(data.visitId);
+          if (session) visitQuery.session(session);
+          const sourceVisit = await visitQuery;
+          if (!sourceVisit) {
+            throw new AppError("Clinic visit not found for this consultation", 404);
+          }
+          if (!sourceVisit.readyForDoctor) {
+            throw new AppError(
+              "A nurse must complete triage before a physician consultation can be saved",
+              409,
+            );
+          }
+          if (
+            sourceVisit.assignedDoctorId &&
+            String(sourceVisit.assignedDoctorId) !== String(data.recordedBy)
+          ) {
+            throw new AppError("This visit is assigned to another doctor", 403);
+          }
         }
 
         const requestedItems = data.prescribedItems ?? [];
@@ -197,6 +216,7 @@ export class MedicalHistoryService {
   async getHistoryById(id: string): Promise<IMedicalHistory> {
     const entry = await MedicalHistory.findById(id)
       .populate("patientId")
+      .populate("visitId", "visitDate complaint")
       .populate("recordedBy", "name role")
       .populate("updatedBy", "name role");
 

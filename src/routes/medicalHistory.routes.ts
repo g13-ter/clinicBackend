@@ -2,6 +2,7 @@ import express from "express";
 
 import {
   createMedicalHistory,
+  downloadMedicalCertificate,
   getHistoryByPatient,
   getHistoryById,
   updateMedicalHistory
@@ -26,6 +27,14 @@ router.post(
 
 // Doctor + Nurse (read-only for nurse, enforced by allowing GET only)
 router.get("/patient/:patientId", protect, allowRoles("doctor", "nurse"), getHistoryByPatient);
+
+// Doctor only - generate a certificate from a saved physician consultation.
+router.get(
+  "/:id/certificate",
+  protect,
+  allowRoles("doctor"),
+  downloadMedicalCertificate,
+);
 
 router.get("/:id", protect, allowRoles("doctor", "nurse"), getHistoryById);
 

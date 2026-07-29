@@ -34,11 +34,13 @@ export const PERMISSIONS = {
     review: ["admin"] as const satisfies readonly UserRole[],
   },
   visits: {
-    create: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
+    create: ["staff", "nurse"] as const satisfies readonly UserRole[],
     list: ["staff", "doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     todayCount: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["nurse", "doctor"] as const satisfies readonly UserRole[],
+    recordVitals: ["nurse"] as const satisfies readonly UserRole[],
+    recordConsultation: ["doctor"] as const satisfies readonly UserRole[],
     archive: ["admin"] as const satisfies readonly UserRole[],
   },
   medicalHistory: {
@@ -47,6 +49,7 @@ export const PERMISSIONS = {
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["doctor"] as const satisfies readonly UserRole[],
     delete: ["doctor"] as const satisfies readonly UserRole[],
+    generateCertificate: ["doctor"] as const satisfies readonly UserRole[],
   },
   users: {
     manage: ["admin"] as const satisfies readonly UserRole[],

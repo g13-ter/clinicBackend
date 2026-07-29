@@ -57,6 +57,7 @@ export class AppointmentService {
       Appointment.find(filter)
         .populate("patientId", "studentId firstName lastName")
         .populate("doctorId", "name role")
+        .populate("visitId", "status readyForDoctor")
         .populate("createdBy", "name role")
         .populate("updatedBy", "name role")
         .sort({ appointmentDate: 1 })
@@ -72,6 +73,7 @@ export class AppointmentService {
     const appointment = await Appointment.findById(id)
       .populate("patientId", "studentId firstName lastName")
       .populate("doctorId", "name role")
+      .populate("visitId", "status readyForDoctor")
       .populate("createdBy", "name role")
       .populate("updatedBy", "name role");
 

@@ -96,7 +96,7 @@ describe("Clinic Visits - Create (clinical roles)", () => {
   });
 
 
-  it("allows a DOCTOR to start a consultation", async () => {
+  it("requires a NURSE or STAFF member to create the visit before doctor consultation", async () => {
 
     const res = await request(app)
       .post("/api/visits")
@@ -106,9 +106,7 @@ describe("Clinic Visits - Create (clinical roles)", () => {
         complaint: "Doctor consultation"
       });
 
-    expect(res.status).toBe(201);
-    expect(res.body.data.recordedBy).toBe(doctorId);
-    await ClinicVisit.findByIdAndDelete(res.body.data._id);
+    expect(res.status).toBe(403);
 
   });
 
@@ -211,4 +209,26 @@ describe("Clinic Visits - Archive (admin only)", () => {
 
   });
 
+});
+
+describe("Clinic Visits - Field-level clinical permissions", () => {
+  it("blocks a DOCTOR from changing nurse-recorded vital signs", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ temperature: 38.2 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/only be recorded or updated by a nurse/i);
+  });
+
+  it("blocks a NURSE from recording physician consultation findings", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ consultationFindings: "Physician diagnosis" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/only be recorded by a doctor/i);
+  });
 });

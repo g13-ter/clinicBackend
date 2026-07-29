@@ -119,8 +119,8 @@ There are 4 roles:
 | Role | Summary |
 |---|---|
 | `admin` | Manages staff accounts. Updates/archives patient basic info. Views audit logs and generates board reports. Cannot touch medical records directly. |
-| `doctor` | Views patients and visits. Owns medical history (diagnosis, prescriptions, family history). |
-| `nurse` | Creates patients and clinic visits. Manages medicine inventory and appointments. Read-only on medical history. |
+| `doctor` | Reviews nurse-recorded triage, records diagnosis and treatment, issues prescriptions, and generates consultation certificates. |
+| `nurse` | Checks in students, records vitals and nursing assessments, and manages medicine inventory and appointments. Read-only on physician medical history. |
 | `staff` | Manages appointments. Sees a basic (non-medical) patient list only. |
 
 ---

@@ -8,6 +8,68 @@ import { buildReferralDocx } from "../utils/referralDocx";
 
 const clinicVisitService = new ClinicVisitService();
 
+const visitFieldsByRole = {
+  staff: ["complaint", "isEmergency", "emergencyDetails"],
+  nurse: [
+    "complaint",
+    "treatment",
+    "notes",
+    "bloodPressure",
+    "temperature",
+    "pulseRate",
+    "respiratoryRate",
+    "heightCm",
+    "weightKg",
+    "nursingAssessment",
+    "nursingInterventions",
+    "nursingRecommendations",
+    "clinicProtocolReference",
+    "isEmergency",
+    "emergencyDetails",
+  ],
+  doctor: [
+    "complaint",
+    "treatment",
+    "notes",
+    "consultationFindings",
+    "isEmergency",
+    "emergencyDetails",
+  ],
+} as const;
+
+const restrictVisitFields = (
+  role: "staff" | "nurse" | "doctor",
+  data: Record<string, unknown>,
+): Record<string, unknown> => {
+  const allowed = new Set<string>(visitFieldsByRole[role]);
+  const prohibited = Object.keys(data).filter(
+    (field) => data[field] !== undefined && !allowed.has(field),
+  );
+
+  if (prohibited.length > 0) {
+    const vitalFields = new Set([
+      "bloodPressure",
+      "temperature",
+      "pulseRate",
+      "respiratoryRate",
+      "heightCm",
+      "weightKg",
+      "bmi",
+    ]);
+    if (role === "doctor" && prohibited.some((field) => vitalFields.has(field))) {
+      throw new AppError("Vital signs can only be recorded or updated by a nurse", 403);
+    }
+    if (role === "nurse" && prohibited.includes("consultationFindings")) {
+      throw new AppError("Physician consultation findings can only be recorded by a doctor", 403);
+    }
+    throw new AppError(`Your role cannot update: ${prohibited.join(", ")}`, 403);
+  }
+
+  return Object.fromEntries(
+    Object.entries(data).filter(([field]) => allowed.has(field)),
+  );
+};
+
 // GET TODAY COUNT
 export const getTodayVisitCount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -67,7 +129,21 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
 export const updateVisitStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = getAuthenticatedUser(req).id;
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
+    if (actor.role === "doctor" && req.body.status === "in_consultation") {
+      const visit = await clinicVisitService.getVisitById(id);
+      if (!visit.readyForDoctor) {
+        throw new AppError(
+          "A nurse must record triage and mark the student ready before the doctor starts consultation",
+          409,
+        );
+      }
+      const assignedDoctor = visit.assignedDoctorId as unknown as { _id?: unknown } | undefined;
+      if (assignedDoctor?._id && String(assignedDoctor._id) !== userId) {
+        throw new AppError("This visit is assigned to another doctor", 403);
+      }
+    }
     const { before, after } = await clinicVisitService.updateStatus(id, req.body, userId);
     logAudit({ action: "update", resource: "ClinicVisit", resourceId: id, performedBy: userId, before: before.toObject(), after: after.toObject(), method: req.method, path: req.originalUrl });
     res.status(200).json({ success: true, message: "Visit status updated successfully", data: after });
@@ -82,17 +158,14 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
     const { patientId, ...visitData } = req.body;
-    const permittedVisitData = actor.role === "staff"
-      ? {
-          complaint: visitData.complaint,
-          isEmergency: visitData.isEmergency,
-          emergencyDetails: visitData.emergencyDetails,
-        }
-      : visitData;
+    if (actor.role === "admin") {
+      throw new AppError("Administrators cannot create clinical visits", 403);
+    }
+    const permittedVisitData = restrictVisitFields(actor.role, visitData);
     if (permittedVisitData.heightCm && permittedVisitData.weightKg) {
       permittedVisitData.bmi = Number((
-        permittedVisitData.weightKg /
-        Math.pow(permittedVisitData.heightCm / 100, 2)
+        Number(permittedVisitData.weightKg) /
+        Math.pow(Number(permittedVisitData.heightCm) / 100, 2)
       ).toFixed(1));
     }
 
@@ -154,10 +227,17 @@ export const getVisitById = async (req: Request, res: Response, next: NextFuncti
 export const updateVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = getAuthenticatedUser(req).id;
-    const visitData = { ...req.body };
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
+    if (actor.role !== "nurse" && actor.role !== "doctor") {
+      throw new AppError("Only nurses and doctors can update clinical visits", 403);
+    }
+    const visitData = restrictVisitFields(actor.role, { ...req.body });
     if (visitData.heightCm && visitData.weightKg) {
-      visitData.bmi = Number((visitData.weightKg / Math.pow(visitData.heightCm / 100, 2)).toFixed(1));
+      visitData.bmi = Number((
+        Number(visitData.weightKg) /
+        Math.pow(Number(visitData.heightCm) / 100, 2)
+      ).toFixed(1));
     }
     const { before, after } = await clinicVisitService.updateVisit(id, {
       ...visitData,

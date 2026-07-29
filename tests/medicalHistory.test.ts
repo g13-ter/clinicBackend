@@ -95,6 +95,26 @@ describe("Medical History - Create (doctor only)", () => {
 
   });
 
+  it("allows a DOCTOR to generate a certificate from a saved consultation", async () => {
+    const res = await request(app)
+      .get(`/api/medical-history/${createdEntryId}/certificate`)
+      .set("Authorization", `Bearer ${doctorToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toContain(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+    expect(res.headers["content-disposition"]).toContain("Consultation_Certificate_");
+  });
+
+  it("blocks a NURSE from generating a physician consultation certificate", async () => {
+    const res = await request(app)
+      .get(`/api/medical-history/${createdEntryId}/certificate`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
 
   it("allows a family-history-only entry with no diagnosis", async () => {
 
