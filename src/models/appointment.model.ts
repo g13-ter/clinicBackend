@@ -5,6 +5,7 @@ export interface IAppointment extends Document {
   doctorId?: mongoose.Types.ObjectId;
   appointmentDate: Date;
   reason: string;
+  cancellationReason?: string;
   status: string;
   notes: string;
   reminderSent: boolean;
@@ -16,6 +17,8 @@ export interface IAppointment extends Document {
   checkedInAt?: Date;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const AppointmentSchema = new Schema<IAppointment>(
@@ -42,6 +45,12 @@ const AppointmentSchema = new Schema<IAppointment>(
     reason: {
       type: String,
       required: true,
+    },
+
+    cancellationReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
     },
 
     status: {

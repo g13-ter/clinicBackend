@@ -16,7 +16,31 @@ interface PatientSearchFilter {
 
 export class PatientService {
   async createPatient(data: Partial<IPatient>): Promise<IPatient> {
-    return await Patient.create(data);
+    const studentId = data.studentId?.trim().toUpperCase();
+    if (!studentId) {
+      throw new AppError("Student ID is required", 400);
+    }
+
+    const existing = await Patient.exists({
+      studentId: { $regex: `^${escapeRegex(studentId)}$`, $options: "i" },
+    });
+    if (existing) {
+      throw new AppError(`Student ID ${studentId} is already registered`, 409);
+    }
+
+    try {
+      return await Patient.create({ ...data, studentId });
+    } catch (error: unknown) {
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === 11000
+      ) {
+        throw new AppError(`Student ID ${studentId} is already registered`, 409);
+      }
+      throw error;
+    }
   }
 
   async getPatients(
@@ -85,10 +109,36 @@ export class PatientService {
       throw new AppError("Patient not found", 404);
     }
 
-    const after = await Patient.findByIdAndUpdate(id, data, {
-      returnDocument: "after",
-      runValidators: true,
-    });
+    const studentId = data.studentId?.trim().toUpperCase();
+    if (studentId) {
+      const existing = await Patient.exists({
+        _id: { $ne: id },
+        studentId: { $regex: `^${escapeRegex(studentId)}$`, $options: "i" },
+      });
+      if (existing) {
+        throw new AppError(`Student ID ${studentId} is already registered`, 409);
+      }
+      data.studentId = studentId;
+    }
+
+    let after: IPatient | null;
+    try {
+      after = await Patient.findByIdAndUpdate(id, data, {
+        returnDocument: "after",
+        runValidators: true,
+      });
+    } catch (error: unknown) {
+      if (
+        studentId &&
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === 11000
+      ) {
+        throw new AppError(`Student ID ${studentId} is already registered`, 409);
+      }
+      throw error;
+    }
 
     if (!after) {
       throw new AppError("Patient not found", 404);
@@ -115,36 +165,6 @@ export class PatientService {
     }
 
     return { before, after };
-  }
-
-  async importPatients(
-    students: Partial<IPatient>[],
-    createdBy: Types.ObjectId,
-  ): Promise<{ created: number; duplicates: string[] }> {
-    const normalized = students.map((student) => ({
-      ...student,
-      studentId: student.studentId?.trim(),
-      createdBy,
-    }));
-    const requestedIds = normalized
-      .map((student) => student.studentId)
-      .filter((studentId): studentId is string => Boolean(studentId));
-    const existing = await Patient.find({ studentId: { $in: requestedIds } })
-      .select("studentId")
-      .lean();
-    const duplicateSet = new Set(existing.map((student) => student.studentId));
-    const seen = new Set<string>();
-    const toCreate = normalized.filter((student) => {
-      if (!student.studentId || duplicateSet.has(student.studentId) || seen.has(student.studentId)) {
-        if (student.studentId) duplicateSet.add(student.studentId);
-        return false;
-      }
-      seen.add(student.studentId);
-      return true;
-    });
-
-    if (toCreate.length > 0) await Patient.insertMany(toCreate, { ordered: false });
-    return { created: toCreate.length, duplicates: [...duplicateSet].sort() };
   }
 
   async advanceSchoolYear(

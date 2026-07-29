@@ -7,7 +7,6 @@ import {
   getPatientById,
   updatePatient,
   archivePatient,
-  importPatients,
   advanceStudentSchoolYear,
 } from "../controllers/patient.controller";
 
@@ -17,7 +16,6 @@ import { validateBody } from "../middleware/validate.middleware";
 import {
   advanceSchoolYearSchema,
   createPatientSchema,
-  importPatientsSchema,
   updatePatientSchema,
 } from "../validators/schemas";
 
@@ -40,14 +38,6 @@ router.get(
   protect,
   allowRoles("staff"),
   getPatientsBasic
-);
-
-router.post(
-  "/import",
-  protect,
-  allowRoles("staff", "nurse"),
-  validateBody(importPatientsSchema),
-  importPatients,
 );
 
 router.post(

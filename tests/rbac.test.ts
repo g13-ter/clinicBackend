@@ -5,6 +5,7 @@ import app from "../src/app";
 import { PERMISSIONS } from "../src/config/permissions";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 import Appointment from "../src/models/appointment.model";
+import Patient from "../src/models/patient.model";
 
 dotenv.config();
 
@@ -16,6 +17,7 @@ let doctorToken: string;
 let doctorId: string;
 let adminToken: string;
 let adminId: string;
+let patientId: string;
 
 beforeAll(async () => {
   await mongoose.connect(process.env.MONGO_URI as string);
@@ -35,6 +37,19 @@ beforeAll(async () => {
   const admin = await createTestUserAndLogin("admin", "rbac_admin");
   adminToken = admin.token;
   adminId = admin.userId;
+
+  const patient = await Patient.create({
+    studentId: `TEST-RBAC-${Date.now()}`,
+    firstName: "RBAC",
+    lastName: "Student",
+    age: 19,
+    gender: "Female",
+    course: "BSIT",
+    yearLevel: 2,
+    contactNumber: "09171234567",
+    address: "Test Address",
+  });
+  patientId = String(patient._id);
 });
 
 afterAll(async () => {
@@ -42,6 +57,7 @@ afterAll(async () => {
   await deleteTestUser(nurseId);
   await deleteTestUser(doctorId);
   await deleteTestUser(adminId);
+  await Patient.findByIdAndDelete(patientId);
   await mongoose.connection.close();
 });
 
@@ -92,7 +108,7 @@ describe("RBAC matrix — appointments", () => {
       .post("/api/appointments")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
-        patientId: "507f1f77bcf86cd799439011",
+        patientId,
         appointmentDate: "2026-08-01T09:00:00.000Z",
         reason: "Clinical follow-up",
         type: "follow_up",

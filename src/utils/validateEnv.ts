@@ -36,6 +36,14 @@ export const validateEnv = (): void => {
     process.exit(1);
   }
 
+  if (
+    process.env.RUN_BACKGROUND_JOBS_IN_API &&
+    !["true", "false"].includes(process.env.RUN_BACKGROUND_JOBS_IN_API)
+  ) {
+    logger.error("FATAL ERROR: RUN_BACKGROUND_JOBS_IN_API must be either true or false.");
+    process.exit(1);
+  }
+
   // Warn when optional production integrations are disabled.
   if (process.env.NODE_ENV === "production" && !process.env.RESEND_API_KEY) {
     logger.warn(

@@ -14,6 +14,7 @@ let nurseId: string;
 
 // a user created DURING a test, that we'll clean up afterward
 let createdUserId: string | null = null;
+let createdUserEmail: string | null = null;
 
 
 beforeAll(async () => {
@@ -49,12 +50,13 @@ describe("Users - Admin only access", () => {
 
   it("allows admin to create a new user", async () => {
 
+    createdUserEmail = `TEST_created_${Date.now()}@clinic.com`;
     const res = await request(app)
       .post("/api/users")
       .set("Authorization", `Bearer ${adminToken}`)
       .send({
         name: "TEST Created Staff",
-        email: `TEST_created_${Date.now()}@clinic.com`,
+        email: createdUserEmail,
         password: TEST_PASSWORD,
         role: "staff"
       });
@@ -65,6 +67,37 @@ describe("Users - Admin only access", () => {
     // remember this so afterAll can clean it up
     createdUserId = res.body.data._id;
 
+  });
+
+  it("deactivates accounts without deleting history and revokes their sessions", async () => {
+    expect(createdUserId).toBeTruthy();
+    expect(createdUserEmail).toBeTruthy();
+
+    const login = await request(app)
+      .post("/api/auth/login")
+      .send({ email: createdUserEmail, password: TEST_PASSWORD });
+    const userToken = login.body.token as string;
+
+    const deactivate = await request(app)
+      .delete(`/api/users/${createdUserId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(deactivate.status).toBe(200);
+
+    const revoked = await request(app)
+      .get("/api/users/me")
+      .set("Authorization", `Bearer ${userToken}`);
+    expect(revoked.status).toBe(401);
+
+    const preserved = await User.findById(createdUserId).lean();
+    expect(preserved).toBeTruthy();
+    expect(preserved?.isActive).toBe(false);
+
+    const reactivate = await request(app)
+      .put(`/api/users/${createdUserId}`)
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ isActive: true });
+    expect(reactivate.status).toBe(200);
+    expect(reactivate.body.data.isActive).toBe(true);
   });
 
 

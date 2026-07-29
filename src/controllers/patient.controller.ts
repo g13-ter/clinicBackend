@@ -165,33 +165,6 @@ export const archivePatient = async (req: Request, res: Response, next: NextFunc
   }
 };
 
-export const importPatients = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  try {
-    const user = getAuthenticatedUser(req);
-    const students = req.body.students as Partial<IPatient>[];
-    const safeStudents = user.role === "staff"
-      ? students.map((student) => staffPatientPayload(student as unknown as Record<string, unknown>) as Partial<IPatient>)
-      : students;
-    const result = await patientService.importPatients(safeStudents, getAuthenticatedObjectId(req));
-    await logAudit({
-      action: "create",
-      resource: "PatientImport",
-      resourceId: `batch-${Date.now()}`,
-      performedBy: user.id,
-      after: result,
-      method: req.method,
-      path: req.originalUrl,
-    });
-    res.status(201).json({
-      success: true,
-      message: `${result.created} students imported${result.duplicates.length ? `; ${result.duplicates.length} duplicates skipped` : ""}`,
-      data: result,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
 export const advanceStudentSchoolYear = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = getAuthenticatedUser(req);

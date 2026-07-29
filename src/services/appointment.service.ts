@@ -4,7 +4,8 @@ import { PaginationParams } from "../utils/pagination";
 import { escapeRegex } from "../utils/regex";
 import type { UserRole } from "../types/roles";
 import ClinicVisit, { IClinicVisit } from "../models/clinicVisit.model";
-import { Types } from "mongoose";
+import { Types, type ClientSession } from "mongoose";
+import { clinicDayRange } from "../utils/clinicTime";
 
 const isDuplicateKeyError = (error: unknown): error is { code: number } =>
   typeof error === "object" &&
@@ -14,14 +15,15 @@ const isDuplicateKeyError = (error: unknown): error is { code: number } =>
 
 interface AppointmentListFilter {
   reason?: { $regex: string; $options: "i" };
-  appointmentDate?: { $gte: Date; $lte: Date };
+  appointmentDate?: { $gte: Date; $lt: Date };
   doctorId?: string | { $exists: false };
 }
 
 export class AppointmentService {
-  async createAppointment(data: Partial<IAppointment>): Promise<IAppointment> {
-    await this.assertNoDoctorConflict(data.doctorId, data.appointmentDate, data.durationMinutes);
-    return await Appointment.create(data);
+  async createAppointment(data: Partial<IAppointment>, session?: ClientSession): Promise<IAppointment> {
+    await this.assertNoDoctorConflict(data.doctorId, data.appointmentDate, data.durationMinutes, undefined, "pending", session);
+    const appointment = new Appointment(data);
+    return await appointment.save(session ? { session } : undefined);
   }
 
   async getAppointments(
@@ -37,14 +39,12 @@ export class AppointmentService {
 
     // Restrict results to one local calendar day.
     if (filters?.date) {
-      const dayStart = new Date(filters.date);
-      if (isNaN(dayStart.getTime())) {
+      try {
+        const { start, endExclusive } = clinicDayRange(filters.date);
+        filter.appointmentDate = { $gte: start, $lt: endExclusive };
+      } catch {
         throw new AppError("date must be a valid date (YYYY-MM-DD)", 400);
       }
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setHours(23, 59, 59, 999);
-      filter.appointmentDate = { $gte: dayStart, $lte: dayEnd };
     }
 
     if (filters?.unassignedOnly) {
@@ -82,11 +82,24 @@ export class AppointmentService {
     return appointment;
   }
 
-  async updateAppointment(id: string, data: Partial<IAppointment>): Promise<{ before: IAppointment; after: IAppointment }> {
-    const before = await Appointment.findById(id);
+  async updateAppointment(id: string, data: Partial<IAppointment>, session?: ClientSession): Promise<{ before: IAppointment; after: IAppointment }> {
+    const before = await Appointment.findById(id).session(session ?? null);
 
     if (!before) {
       throw new AppError("Appointment not found", 404);
+    }
+
+    const reminderDetailsChanged =
+      (data.appointmentDate !== undefined &&
+        new Date(data.appointmentDate).getTime() !== before.appointmentDate.getTime()) ||
+      (data.doctorId !== undefined &&
+        String(data.doctorId) !== String(before.doctorId ?? ""));
+    if (reminderDetailsChanged) {
+      data.reminderSent = false;
+      if (data.status !== "cancelled") {
+        // A changed doctor or schedule must be confirmed again.
+        data.status = "pending";
+      }
     }
 
     await this.assertNoDoctorConflict(
@@ -95,15 +108,25 @@ export class AppointmentService {
       data.durationMinutes === undefined ? before.durationMinutes : data.durationMinutes,
       id,
       data.status === undefined ? before.status : data.status,
+      session,
     );
 
     const after = await Appointment.findByIdAndUpdate(id, data, {
       returnDocument: "after",
       runValidators: true,
+      ...(session ? { session } : {}),
     });
 
     if (!after) {
       throw new AppError("Appointment not found", 404);
+    }
+
+    if (reminderDetailsChanged) {
+      await Appointment.updateOne(
+        { _id: id },
+        { $unset: { reminderClaimedAt: 1 } },
+        session ? { session } : undefined,
+      );
     }
 
     return { before, after };
@@ -133,6 +156,32 @@ export class AppointmentService {
         ...(role === "doctor" && !before.doctorId ? { doctorId: userId } : {}),
       },
       { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Appointment not found", 404);
+    return { before, after };
+  }
+
+  async confirmAppointment(
+    id: string,
+    doctorId: string,
+    session?: ClientSession,
+  ): Promise<{ before: IAppointment; after: IAppointment }> {
+    const before = await Appointment.findById(id).session(session ?? null);
+    if (!before) throw new AppError("Appointment not found", 404);
+    if (!before.doctorId || String(before.doctorId) !== doctorId) {
+      throw new AppError("You can only confirm appointments assigned to you", 403);
+    }
+    if (before.status === "confirmed") {
+      return { before, after: before };
+    }
+    if (before.status !== "pending") {
+      throw new AppError("Only pending appointments can be confirmed", 409);
+    }
+
+    const after = await Appointment.findByIdAndUpdate(
+      id,
+      { status: "confirmed", updatedBy: doctorId },
+      { returnDocument: "after", runValidators: true, ...(session ? { session } : {}) },
     );
     if (!after) throw new AppError("Appointment not found", 404);
     return { before, after };
@@ -206,6 +255,7 @@ export class AppointmentService {
     durationMinutes = 30,
     excludeId?: string,
     status = "pending",
+    session?: ClientSession,
   ): Promise<void> {
     if (!doctorId || !appointmentDate || status === "cancelled") return;
     const start = new Date(appointmentDate);
@@ -217,7 +267,7 @@ export class AppointmentService {
       appointmentDate: { $gte: windowStart, $lte: windowEnd },
       status: { $ne: "cancelled" },
       ...(excludeId ? { _id: { $ne: excludeId } } : {}),
-    });
+    }).session(session ?? null);
     const conflicts = appointments.some((item) => {
       const itemStart = new Date(item.appointmentDate);
       const itemEnd = new Date(itemStart.getTime() + (item.durationMinutes ?? 30) * 60_000);

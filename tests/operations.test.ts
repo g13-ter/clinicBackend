@@ -46,8 +46,8 @@ afterAll(async () => {
   await mongoose.connection.close();
 });
 
-describe("Student import and school-year rollover", () => {
-  it("imports students, skips duplicates, and rolls over only once per target year", async () => {
+describe("School-year rollover", () => {
+  it("rolls over each active student only once per target year", async () => {
     const studentId = `TEST-IMPORT-${Date.now()}`;
     const student = {
       studentId,
@@ -60,17 +60,8 @@ describe("Student import and school-year rollover", () => {
       contactNumber: "09171234567",
       address: "Test Address",
     };
-    const importResponse = await request(app)
-      .post("/api/patients/import")
-      .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ students: [student, student] });
-
-    expect(importResponse.status).toBe(201);
-    expect(importResponse.body.data.created).toBe(1);
-    expect(importResponse.body.data.duplicates).toContain(studentId);
-    const patient = await Patient.findOne({ studentId });
-    expect(patient).not.toBeNull();
-    patientIds.push(String(patient?._id));
+    const patient = await Patient.create(student);
+    patientIds.push(String(patient._id));
 
     const firstRollover = await request(app)
       .post("/api/patients/school-year/advance")
@@ -83,7 +74,7 @@ describe("Student import and school-year rollover", () => {
 
     expect(firstRollover.status).toBe(200);
     expect(secondRollover.status).toBe(200);
-    expect((await Patient.findById(patient?._id))?.yearLevel).toBe(3);
+    expect((await Patient.findById(patient._id))?.yearLevel).toBe(3);
   });
 });
 

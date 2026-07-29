@@ -32,7 +32,7 @@ router.post(
 router.get(
   "/low-stock",
   protect,
-  allowRoles("nurse", "doctor", "admin", "staff"),
+  allowRoles("nurse", "doctor", "admin"),
   getLowStockMedicines
 );
 
@@ -41,19 +41,19 @@ router.get(
 router.get(
   "/expiring",
   protect,
-  allowRoles("nurse", "doctor", "admin", "staff"),
+  allowRoles("nurse", "doctor", "admin"),
   getExpiringMedicines
 );
 
 router.post("/:id/batches", protect, allowRoles("nurse"), validateBody(createInventoryBatchSchema), createInventoryBatch);
-router.get("/:id/batches", protect, allowRoles("nurse", "doctor", "admin", "staff"), getInventoryBatches);
+router.get("/:id/batches", protect, allowRoles("nurse", "doctor", "admin"), getInventoryBatches);
 
 
 // Nurse + Doctor - view all medicines
 router.get(
   "/",
   protect,
-  allowRoles("admin", "nurse", "doctor", "staff"),
+  allowRoles("admin", "nurse", "doctor"),
   getMedicines
 );
 
@@ -62,7 +62,7 @@ router.get(
 router.get(
   "/:id",
   protect,
-  allowRoles("nurse", "doctor", "staff"),
+  allowRoles("nurse", "doctor"),
   getMedicineById
 );
 

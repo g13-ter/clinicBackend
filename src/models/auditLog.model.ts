@@ -2,7 +2,7 @@ import mongoose, { Schema, Document } from "mongoose";
 
 // Append-only history of changes to tracked resources.
 
-export type AuditAction = "create" | "update" | "delete" | "view";
+export type AuditAction = "create" | "update" | "delete" | "deactivate" | "reactivate" | "view";
 
 export interface IAuditLog extends Document {
   action: AuditAction;
@@ -10,6 +10,12 @@ export interface IAuditLog extends Document {
   resourceId: string;      // the _id of the record acted on (string, not ObjectId -
                             // Preserve references to removed records.
   performedBy: mongoose.Types.ObjectId;
+  actorSnapshot?: {
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+  };
   changes?: {
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
@@ -25,7 +31,7 @@ const AuditLogSchema = new Schema<IAuditLog>(
   {
     action: {
       type: String,
-      enum: ["create", "update", "delete", "view"],
+      enum: ["create", "update", "delete", "deactivate", "reactivate", "view"],
       required: true,
       index: true,
     },
@@ -47,6 +53,15 @@ const AuditLogSchema = new Schema<IAuditLog>(
       ref: "User",
       required: true,
       index: true,
+    },
+
+    // Keep the actor identity immutable even if the live account is later
+    // renamed or deleted.
+    actorSnapshot: {
+      userId: { type: String },
+      name: { type: String },
+      email: { type: String },
+      role: { type: String },
     },
 
     changes: {

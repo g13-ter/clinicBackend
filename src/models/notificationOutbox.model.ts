@@ -2,6 +2,9 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export type NotificationKind =
   | "appointment_confirmation"
+  | "appointment_doctor_confirmed"
+  | "appointment_rescheduled"
+  | "appointment_cancelled"
   | "appointment_reminder"
   | "low_stock"
   | "purchase_request";
@@ -11,7 +14,7 @@ export interface INotificationOutbox extends Document {
   recipient: string;
   payload: Record<string, unknown>;
   dedupeKey?: string;
-  status: "pending" | "processing" | "sent" | "failed";
+  status: "pending" | "processing" | "sent" | "failed" | "discarded";
   attempts: number;
   availableAt: Date;
   claimedAt?: Date;
@@ -22,7 +25,15 @@ export interface INotificationOutbox extends Document {
 const NotificationOutboxSchema = new Schema<INotificationOutbox>({
   kind: {
     type: String,
-    enum: ["appointment_confirmation", "appointment_reminder", "low_stock", "purchase_request"],
+    enum: [
+      "appointment_confirmation",
+      "appointment_doctor_confirmed",
+      "appointment_rescheduled",
+      "appointment_cancelled",
+      "appointment_reminder",
+      "low_stock",
+      "purchase_request",
+    ],
     required: true,
     index: true,
   },
@@ -31,7 +42,7 @@ const NotificationOutboxSchema = new Schema<INotificationOutbox>({
   dedupeKey: { type: String, unique: true, sparse: true },
   status: {
     type: String,
-    enum: ["pending", "processing", "sent", "failed"],
+    enum: ["pending", "processing", "sent", "failed", "discarded"],
     default: "pending",
     index: true,
   },

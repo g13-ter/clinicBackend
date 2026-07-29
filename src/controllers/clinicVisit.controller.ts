@@ -79,15 +79,26 @@ export const updateVisitStatus = async (req: Request, res: Response, next: NextF
 // CREATE
 export const createVisit = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = getAuthenticatedUser(req).id;
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
     const { patientId, ...visitData } = req.body;
-    if (visitData.heightCm && visitData.weightKg) {
-      visitData.bmi = Number((visitData.weightKg / Math.pow(visitData.heightCm / 100, 2)).toFixed(1));
+    const permittedVisitData = actor.role === "staff"
+      ? {
+          complaint: visitData.complaint,
+          isEmergency: visitData.isEmergency,
+          emergencyDetails: visitData.emergencyDetails,
+        }
+      : visitData;
+    if (permittedVisitData.heightCm && permittedVisitData.weightKg) {
+      permittedVisitData.bmi = Number((
+        permittedVisitData.weightKg /
+        Math.pow(permittedVisitData.heightCm / 100, 2)
+      ).toFixed(1));
     }
 
     const visit = await clinicVisitService.createVisit({
       patientId,
-      ...visitData,
+      ...permittedVisitData,
       recordedBy: getAuthenticatedObjectId(req),
     });
 

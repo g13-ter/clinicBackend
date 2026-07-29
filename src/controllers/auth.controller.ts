@@ -1,8 +1,18 @@
 import { Request, Response, NextFunction } from "express";
 import { AuthService } from "../services/auth.service";
 import { AppError } from "../middleware/error.middleware";
+import type { CookieOptions } from "express";
+import { SESSION_COOKIE_NAME } from "../utils/sessionToken";
 
 const authService = new AuthService();
+
+const cookieOptions = (expiresAt?: string): CookieOptions => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/api",
+  ...(expiresAt ? { expires: new Date(expiresAt) } : {}),
+});
 
 // LOGIN USER
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -13,10 +23,38 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       throw new AppError("Email and password are required", 400);
     }
 
-    const token = await authService.login(email, password);
+    const result = await authService.login(email, password);
+    res.cookie(SESSION_COOKIE_NAME, result.token, cookieOptions(result.expiresAt));
 
-    res.json({ token });
+    res.json({
+      success: true,
+      message: "Login successful",
+      data: {
+        user: result.user,
+        expiresAt: result.expiresAt,
+      },
+      // Bearer tokens remain available to automated tests and API clients
+      // outside production; browsers use the HttpOnly cookie.
+      ...(process.env.NODE_ENV === "production" ? {} : { token: result.token }),
+    });
   } catch (error) {
     next(error);
   }
+};
+
+export const logout = (_req: Request, res: Response): void => {
+  res.clearCookie(SESSION_COOKIE_NAME, cookieOptions());
+  res.status(200).json({ success: true, message: "Logged out", data: null });
+};
+
+export const session = (req: Request, res: Response): void => {
+  res.status(200).json({
+    success: true,
+    message: "Session active",
+    data: {
+      user: req.user,
+      expiresAt:
+        req.user?.exp ? new Date(req.user.exp * 1000).toISOString() : null,
+    },
+  });
 };

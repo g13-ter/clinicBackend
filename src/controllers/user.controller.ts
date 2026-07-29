@@ -16,7 +16,7 @@ export const createUser = async (req: Request, res: Response, next: NextFunction
     // Never expose password data.
     const { password: _omit, ...safeUser } = user.toObject();
 
-    logAudit({
+    await logAudit({
       action: "create",
       resource: "User",
       resourceId: String(user._id),
@@ -76,12 +76,12 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
   try {
     const id = req.params.id as string;
     const performedBy = getAuthenticatedUser(req).id;
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, isActive } = req.body;
 
-    const { before, after } = await userService.updateUser(id, { name, email, password, role });
+    const { before, after } = await userService.updateUser(id, { name, email, password, role, isActive });
 
-    logAudit({
-      action: "update",
+    await logAudit({
+      action: before.isActive === false && after.isActive === true ? "reactivate" : "update",
       resource: "User",
       resourceId: id,
       performedBy,
@@ -97,25 +97,30 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
   }
 };
 
-// DELETE
+// DEACTIVATE (keeps ownership and audit references intact)
 export const deleteUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
     const performedBy = getAuthenticatedUser(req).id;
 
-    const deletedUser = await userService.deleteUser(id);
+    const { before, after } = await userService.deactivateUser(id, performedBy);
 
-    logAudit({
-      action: "delete",
+    await logAudit({
+      action: "deactivate",
       resource: "User",
       resourceId: id,
       performedBy,
-      before: deletedUser.toObject(),
+      before: before.toObject(),
+      after: after.toObject(),
       method: req.method,
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "User deleted successfully" });
+    res.status(200).json({
+      success: true,
+      message: "User deactivated. Their active sessions have been revoked.",
+      data: after,
+    });
   } catch (error) {
     next(error);
   }

@@ -17,6 +17,7 @@ let staffToken: string;
 let staffId: string;
 
 let createdPatientId: string | null = null;
+let createdStudentId = "";
 const staffCreatedPatientIds: string[] = [];
 
 
@@ -64,11 +65,12 @@ describe("Patients - Create (staff and nurse)", () => {
 
   it("allows a NURSE to create a patient", async () => {
 
+    createdStudentId = `TEST-${Date.now()}`;
     const res = await request(app)
       .post("/api/patients")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
-        studentId: `TEST-${Date.now()}`,
+        studentId: createdStudentId,
         firstName: "TEST",
         lastName: "Patient",
         age: 20,
@@ -83,6 +85,44 @@ describe("Patients - Create (staff and nurse)", () => {
 
     createdPatientId = res.body.data._id;
 
+  });
+
+  it("rejects a duplicate student ID regardless of spaces or letter case", async () => {
+    const duplicateStudentId = `DUPLICATE-${Date.now()}`;
+    const original = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        studentId: duplicateStudentId,
+        firstName: "Original",
+        lastName: "Student",
+        age: 20,
+        gender: "Male",
+        course: "BSIT",
+        yearLevel: 2,
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+    expect(original.status).toBe(201);
+    staffCreatedPatientIds.push(original.body.data._id);
+
+    const res = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        studentId: `  ${duplicateStudentId.toLowerCase()}  `,
+        firstName: "Duplicate",
+        lastName: "Student",
+        age: 20,
+        gender: "Male",
+        course: "BSIT",
+        yearLevel: 2,
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/already registered/i);
   });
 
 
@@ -224,7 +264,7 @@ describe("Patients - Archive instead of delete (admin only)", () => {
 
     // confirm it's still in the database when explicitly asked for
     const includeInactiveRes = await request(app)
-      .get("/api/patients?includeInactive=true")
+      .get(`/api/patients?includeInactive=true&search=${encodeURIComponent(createdStudentId)}&limit=10`)
       .set("Authorization", `Bearer ${nurseToken}`);
 
     const stillExists = includeInactiveRes.body.data.find(

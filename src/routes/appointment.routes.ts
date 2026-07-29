@@ -4,6 +4,7 @@ import {
   createAppointment,
   checkInAppointment,
   completeAppointment,
+  confirmAppointment,
   getAppointments,
   getAppointmentById,
   updateAppointment
@@ -31,6 +32,13 @@ router.put(
   protect,
   allowRoles("nurse", "doctor"),
   completeAppointment
+);
+
+router.put(
+  "/:id/confirm",
+  protect,
+  allowRoles("doctor"),
+  confirmAppointment,
 );
 
 router.post(

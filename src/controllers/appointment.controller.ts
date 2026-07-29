@@ -6,11 +6,60 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { enqueueNotification } from "../services/notificationOutbox.service";
-import logger from "../utils/logger";
+import { AppError } from "../middleware/error.middleware";
+import type { IAppointment } from "../models/appointment.model";
+import type { ClientSession } from "mongoose";
+import { withMongoTransaction } from "../utils/transaction";
 
 const appointmentService = new AppointmentService();
 const patientService = new PatientService();
 const userService = new UserService();
+
+type AppointmentLifecycleKind =
+  | "appointment_confirmation"
+  | "appointment_doctor_confirmed"
+  | "appointment_rescheduled"
+  | "appointment_cancelled";
+
+const enqueueAppointmentLifecycleNotification = async (
+  kind: AppointmentLifecycleKind,
+  appointment: IAppointment,
+  previousDate?: Date,
+  session?: ClientSession,
+): Promise<void> => {
+  const patient = await patientService.getPatientById(String(appointment.patientId));
+  if (!patient.email) return;
+
+  let doctorName: string | undefined;
+  if (appointment.doctorId) {
+    const doctor = await userService.getUserById(String(appointment.doctorId));
+    doctorName = doctor.name;
+  }
+
+  const appointmentDate = appointment.appointmentDate.toISOString();
+  await enqueueNotification({
+    kind,
+    recipient: patient.email,
+    dedupeKey: [
+      kind,
+      String(appointment._id),
+      appointment.updatedAt.toISOString(),
+      patient.email,
+    ].join(":"),
+    payload: {
+      appointmentId: String(appointment._id),
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      appointmentDate,
+      reason: appointment.reason,
+      ...(appointment.cancellationReason
+        ? { cancellationReason: appointment.cancellationReason }
+        : {}),
+      ...(doctorName ? { doctorName } : {}),
+      ...(previousDate ? { previousDate: previousDate.toISOString() } : {}),
+    },
+    ...(session ? { session } : {}),
+  });
+};
 
 // CREATE
 export const createAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -18,18 +67,41 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     const userId = getAuthenticatedUser(req).id;
     const actor = getAuthenticatedUser(req);
     const { patientId, doctorId, appointmentDate, reason, notes, durationMinutes, type, sourceVisitId } = req.body;
+    const patient = await patientService.getPatientById(patientId);
+    if (!patient.isActive) {
+      throw new AppError("Appointments can only be scheduled for active students", 409);
+    }
     const assignedDoctorId = actor.role === "doctor" ? actor.id : doctorId;
+    if (!assignedDoctorId) {
+      throw new AppError("Please select a doctor for the appointment", 400);
+    }
+    const assignedDoctor = await userService.getUserById(assignedDoctorId);
+    if (assignedDoctor.role !== "doctor") {
+      throw new AppError("The selected user is not a doctor", 400);
+    }
+    if (actor.role !== "doctor" && assignedDoctor.isAvailable === false) {
+      throw new AppError("The selected doctor is currently unavailable", 409);
+    }
 
-    const appointment = await appointmentService.createAppointment({
-      patientId,
-      doctorId: assignedDoctorId,
-      appointmentDate,
-      reason,
-      notes,
-      durationMinutes,
-      type,
-      sourceVisitId,
-      createdBy: getAuthenticatedObjectId(req),
+    const appointment = await withMongoTransaction(async (session) => {
+      const created = await appointmentService.createAppointment({
+        patientId,
+        doctorId: assignedDoctorId,
+        appointmentDate,
+        reason,
+        notes,
+        durationMinutes,
+        type,
+        sourceVisitId,
+        createdBy: getAuthenticatedObjectId(req),
+      }, session);
+      await enqueueAppointmentLifecycleNotification(
+        "appointment_confirmation",
+        created,
+        undefined,
+        session,
+      );
+      return created;
     });
 
     logAudit({
@@ -42,35 +114,13 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
       path: req.originalUrl,
     });
 
-    res.status(201).json({ success: true, message: "Appointment created successfully", data: appointment });
-
-    // Email failures must not affect the completed request.
-    (async () => {
-      try {
-        const patient = await patientService.getPatientById(patientId);
-        if (!patient.email) return;
-
-        let doctorName: string | undefined;
-        if (assignedDoctorId) {
-          const doctor = await userService.getUserById(assignedDoctorId);
-          doctorName = doctor.name;
-        }
-
-        await enqueueNotification({
-          kind: "appointment_confirmation",
-          recipient: patient.email,
-          dedupeKey: `appointment-confirmation:${appointment._id}:${patient.email}`,
-          payload: {
-            patientName: `${patient.firstName} ${patient.lastName}`,
-            appointmentDate: appointment.appointmentDate.toISOString(),
-            reason: appointment.reason,
-            ...(doctorName ? { doctorName } : {}),
-          },
-        });
-      } catch (emailError) {
-        logger.error("Failed to send appointment confirmation email:", emailError);
-      }
-    })();
+    res.status(201).json({
+      success: true,
+      message: actor.role === "doctor"
+        ? "Appointment scheduled successfully"
+        : `Appointment sent to ${assignedDoctor.name} for confirmation`,
+      data: appointment,
+    });
   } catch (error) {
     next(error);
   }
@@ -81,7 +131,10 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
   try {
     const search = req.query.search as string | undefined;
     const date = req.query.date as string | undefined;
-    const doctorId = req.query.doctorId as string | undefined;
+    const actor = getAuthenticatedUser(req);
+    const requestedDoctorId = req.query.doctorId as string | undefined;
+    // Doctors receive only appointments assigned to their own account.
+    const doctorId = actor.role === "doctor" ? actor.id : requestedDoctorId;
     const unassignedOnly = req.query.unassignedOnly === "true";
     const pagination = getPaginationParams(req.query);
 
@@ -119,10 +172,47 @@ export const updateAppointment = async (req: Request, res: Response, next: NextF
   try {
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
-    const { before, after } = await appointmentService.updateAppointment(id, {
-      ...req.body,
-      updatedBy: getAuthenticatedObjectId(req),
+    if (req.body.doctorId) {
+      const assignedDoctor = await userService.getUserById(req.body.doctorId);
+      if (assignedDoctor.role !== "doctor") {
+        throw new AppError("The selected user is not a doctor", 400);
+      }
+      if (assignedDoctor.isAvailable === false) {
+        throw new AppError("The selected doctor is currently unavailable", 409);
+      }
+    }
+    const { before, after } = await withMongoTransaction(async (session) => {
+      const result = await appointmentService.updateAppointment(id, {
+        ...req.body,
+        updatedBy: getAuthenticatedObjectId(req),
+      }, session);
+      const cancelled =
+        result.before.status !== "cancelled" && result.after.status === "cancelled";
+      const changed =
+        result.before.appointmentDate.getTime() !== result.after.appointmentDate.getTime() ||
+        String(result.before.doctorId ?? "") !== String(result.after.doctorId ?? "");
+      if (cancelled) {
+        await enqueueAppointmentLifecycleNotification(
+          "appointment_cancelled",
+          result.after,
+          undefined,
+          session,
+        );
+      } else if (changed) {
+        await enqueueAppointmentLifecycleNotification(
+          "appointment_rescheduled",
+          result.after,
+          result.before.appointmentDate,
+          session,
+        );
+      }
+      return result;
     });
+    const wasCancelled =
+      before.status !== "cancelled" && after.status === "cancelled";
+    const scheduleChanged =
+      before.appointmentDate.getTime() !== after.appointmentDate.getTime() ||
+      String(before.doctorId ?? "") !== String(after.doctorId ?? "");
 
     logAudit({
       action: "update",
@@ -135,7 +225,15 @@ export const updateAppointment = async (req: Request, res: Response, next: NextF
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Appointment updated successfully", data: after });
+    res.status(200).json({
+      success: true,
+      message: wasCancelled
+        ? "Appointment cancelled successfully"
+        : scheduleChanged
+          ? "Appointment rescheduled successfully"
+          : "Appointment updated successfully",
+      data: after,
+    });
   } catch (error) {
     next(error);
   }
@@ -159,6 +257,42 @@ export const completeAppointment = async (req: Request, res: Response, next: Nex
     });
 
     res.status(200).json({ success: true, message: "Appointment completed successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const confirmAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await withMongoTransaction(async (session) => {
+      const result = await appointmentService.confirmAppointment(id, actor.id, session);
+      await enqueueAppointmentLifecycleNotification(
+        "appointment_doctor_confirmed",
+        result.after,
+        undefined,
+        session,
+      );
+      return result;
+    });
+
+    logAudit({
+      action: "update",
+      resource: "Appointment",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Appointment confirmed. It is ready for check-in.",
+      data: after,
+    });
   } catch (error) {
     next(error);
   }

@@ -253,7 +253,7 @@ describe("Medicine Inventory - Expiring/Expired", () => {
 });
 
 describe("Medicine Inventory - Staff access", () => {
-  it("allows STAFF to view inventory without granting edit access", async () => {
+  it("blocks STAFF from viewing or editing inventory", async () => {
     const listResponse = await request(app)
       .get("/api/medicines")
       .set("Authorization", `Bearer ${staffToken}`);
@@ -262,7 +262,7 @@ describe("Medicine Inventory - Staff access", () => {
       .set("Authorization", `Bearer ${staffToken}`)
       .send({ quantity: 999 });
 
-    expect(listResponse.status).toBe(200);
+    expect(listResponse.status).toBe(403);
     expect(updateResponse.status).toBe(403);
   });
 });

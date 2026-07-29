@@ -24,7 +24,10 @@ export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(6).optional(),
-  role: z.enum(["admin", "doctor", "nurse", "staff"]).optional(),
+    role: z.enum(["admin", "doctor", "nurse", "staff"]).optional(),
+    // Deactivation uses DELETE so it can enforce self/last-admin safeguards.
+    // PUT may only reactivate an existing account.
+    isActive: z.literal(true).optional(),
   isAvailable: z.boolean().optional(),
   scheduleNotes: z.string().optional()
 });
@@ -71,18 +74,6 @@ export const createPatientSchema = z.object({
 });
 
 export const updatePatientSchema = createPatientSchema.partial();
-
-export const importPatientsSchema = z.object({
-  students: z.array(
-    createPatientSchema.omit({
-      bloodType: true,
-      healthConditions: true,
-      medicalAlerts: true,
-      consents: true,
-      immunizations: true,
-    }),
-  ).min(1).max(500),
-});
 
 export const advanceSchoolYearSchema = z.object({
   schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
@@ -178,11 +169,22 @@ export const updateAppointmentSchema = z.object({
   doctorId: z.string().optional(),
   appointmentDate: z.coerce.date().optional(),
   reason: z.string().min(1).optional(),
-  status: z.enum(["pending", "confirmed", "checked_in", "cancelled", "completed"]).optional(),
+  // Staff/nurse may reschedule or cancel. Confirmation, check-in, and
+  // completion use dedicated role-owned endpoints.
+  status: z.enum(["pending", "cancelled"]).optional(),
+  cancellationReason: z.string().trim().min(3).max(500).optional(),
   notes: z.string().optional(),
   durationMinutes: z.number().int().min(5).max(480).optional(),
   type: z.enum(["regular", "follow_up"]).optional(),
   sourceVisitId: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (value.status === "cancelled" && !value.cancellationReason) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Please provide a reason for cancelling the appointment",
+      path: ["cancellationReason"],
+    });
+  }
 });
 
 

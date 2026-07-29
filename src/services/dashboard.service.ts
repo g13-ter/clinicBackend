@@ -7,18 +7,9 @@ import Medicine, { IMedicine } from "../models/medicine.model";
 import PurchaseRequest from "../models/purchaseRequest.model";
 import AuditLog from "../models/auditLog.model";
 import { computeStatus } from "./medicine.service";
+import { clinicDateKey, clinicDayRange } from "../utils/clinicTime";
 
-const startOfToday = (): Date => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const endOfToday = (): Date => {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d;
-};
+const todayRange = () => clinicDayRange(clinicDateKey());
 
 const startOfMonth = (): Date => {
   const d = new Date();
@@ -93,7 +84,9 @@ const titleCase = (value: string): string =>
   value.replace(/\b\w/g, (character) => character.toUpperCase());
 
 export class DashboardService {
-  async getStats(): Promise<DashboardStats> {
+  async getStats(doctorId?: string): Promise<DashboardStats> {
+    const { start: todayStart, endExclusive: todayEnd } = todayRange();
+    const doctorScope = doctorId ? { doctorId } : {};
     const [
       totalStudents,
       doctorCount,
@@ -121,21 +114,22 @@ export class DashboardService {
       User.countDocuments({ role: "staff", isAvailable: { $ne: false } }),
       User.countDocuments({ role: "admin" }),
       Appointment.countDocuments({
-        appointmentDate: { $gte: startOfToday(), $lte: endOfToday() },
+        appointmentDate: { $gte: todayStart, $lt: todayEnd },
         status: { $ne: "cancelled" },
+        ...doctorScope,
       }),
       ClinicVisit.countDocuments({
-        visitDate: { $gte: startOfToday(), $lte: endOfToday() },
+        visitDate: { $gte: todayStart, $lt: todayEnd },
       }),
       ClinicVisit.countDocuments({
-        visitDate: { $gte: startOfToday(), $lte: endOfToday() },
+        visitDate: { $gte: todayStart, $lt: todayEnd },
         status: { $in: ["in_consultation", "completed", "referred"] },
       }),
       ClinicVisit.countDocuments({
-        visitDate: { $gte: startOfToday(), $lte: endOfToday() },
+        visitDate: { $gte: todayStart, $lt: todayEnd },
         isEmergency: true,
       }),
-      Appointment.countDocuments({ status: "pending" }),
+      Appointment.countDocuments({ status: "pending", ...doctorScope }),
       // Active visits represent the current queue.
       ClinicVisit.countDocuments({
         isActive: true,

@@ -68,8 +68,9 @@ export const sendDueReminders = async (): Promise<ReminderSweepResult> => {
         await enqueueNotification({
           kind: "appointment_reminder",
           recipient: patient.email,
-          dedupeKey: `appointment-reminder:${appointment._id}:${patient.email}`,
+          dedupeKey: `appointment-reminder:${appointment._id}:${appointment.appointmentDate.toISOString()}:${patient.email}`,
           payload: {
+            appointmentId: String(appointment._id),
             patientName: `${patient.firstName} ${patient.lastName}`,
             appointmentDate: appointment.appointmentDate.toISOString(),
             ...(doctor?.name ? { doctorName: doctor.name } : {}),

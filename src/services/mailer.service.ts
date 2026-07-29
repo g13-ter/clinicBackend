@@ -18,7 +18,9 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolea
     process.env.EMAIL_FROM || "School Clinic <onboarding@resend.dev>";
   const configuredTestRecipient = process.env.EMAIL_TEST_RECIPIENT?.trim();
   const redirectForDevelopment =
-    process.env.NODE_ENV !== "production" && Boolean(configuredTestRecipient);
+    process.env.NODE_ENV !== "production" &&
+    Boolean(configuredTestRecipient) &&
+    configuredTestRecipient?.toLowerCase() !== to.trim().toLowerCase();
   const deliveryRecipient = redirectForDevelopment
     ? configuredTestRecipient as string
     : to;
@@ -94,12 +96,12 @@ export const mailer = {
   }): Promise<boolean> =>
     sendEmail({
       to: params.to,
-      subject: "Appointment Confirmed - School Clinic",
+      subject: "Appointment Scheduled - School Clinic",
       html: emailWrapper(
-        "Your appointment is confirmed",
+        "Your appointment has been scheduled",
         `
           <p>Hi ${params.patientName},</p>
-          <p>Your clinic appointment has been booked:</p>
+          <p>Your clinic appointment has been scheduled and sent to the assigned doctor:</p>
           <ul>
             <li><strong>Date &amp; time:</strong> ${formatDateTime(params.appointmentDate)}</li>
             ${params.doctorName ? `<li><strong>Doctor:</strong> ${params.doctorName}</li>` : ""}
@@ -107,6 +109,83 @@ export const mailer = {
           </ul>
           <p>Please arrive a few minutes early. If you need to reschedule, contact the clinic directly.</p>
         `
+      ),
+    }),
+
+  sendAppointmentDoctorConfirmed: (params: {
+    to: string;
+    patientName: string;
+    appointmentDate: Date;
+    doctorName?: string;
+  }): Promise<boolean> =>
+    sendEmail({
+      to: params.to,
+      subject: "Appointment Confirmed by Doctor - School Clinic",
+      html: emailWrapper(
+        "Your doctor confirmed the appointment",
+        `
+          <p>Hi ${params.patientName},</p>
+          <p>Your appointment is confirmed and ready:</p>
+          <ul>
+            <li><strong>Date &amp; time:</strong> ${formatDateTime(params.appointmentDate)}</li>
+            ${params.doctorName ? `<li><strong>Doctor:</strong> ${params.doctorName}</li>` : ""}
+          </ul>
+          <p>Please arrive a few minutes early for check-in.</p>
+        `,
+      ),
+    }),
+
+  sendAppointmentRescheduled: (params: {
+    to: string;
+    patientName: string;
+    previousDate: Date;
+    appointmentDate: Date;
+    doctorName?: string;
+    reason: string;
+  }): Promise<boolean> =>
+    sendEmail({
+      to: params.to,
+      subject: "Appointment Rescheduled - School Clinic",
+      html: emailWrapper(
+        "Your appointment was rescheduled",
+        `
+          <p>Hi ${params.patientName},</p>
+          <p>Your clinic appointment schedule has changed:</p>
+          <ul>
+            <li><strong>Previous schedule:</strong> ${formatDateTime(params.previousDate)}</li>
+            <li><strong>New schedule:</strong> ${formatDateTime(params.appointmentDate)}</li>
+            ${params.doctorName ? `<li><strong>Doctor:</strong> ${params.doctorName}</li>` : ""}
+            <li><strong>Reason:</strong> ${params.reason}</li>
+          </ul>
+          <p>Future reminders will use the new schedule.</p>
+        `,
+      ),
+    }),
+
+  sendAppointmentCancelled: (params: {
+    to: string;
+    patientName: string;
+    appointmentDate: Date;
+    doctorName?: string;
+    reason: string;
+    cancellationReason: string;
+  }): Promise<boolean> =>
+    sendEmail({
+      to: params.to,
+      subject: "Appointment Cancelled - School Clinic",
+      html: emailWrapper(
+        "Your appointment was cancelled",
+        `
+          <p>Hi ${params.patientName},</p>
+          <p>Your clinic appointment has been cancelled:</p>
+          <ul>
+            <li><strong>Cancelled schedule:</strong> ${formatDateTime(params.appointmentDate)}</li>
+            ${params.doctorName ? `<li><strong>Doctor:</strong> ${params.doctorName}</li>` : ""}
+            <li><strong>Reason for visit:</strong> ${params.reason}</li>
+            <li><strong>Cancellation reason:</strong> ${params.cancellationReason}</li>
+          </ul>
+          <p>No further reminders will be sent for this appointment. Contact the clinic if you need a new schedule.</p>
+        `,
       ),
     }),
 

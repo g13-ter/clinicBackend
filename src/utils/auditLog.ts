@@ -1,4 +1,5 @@
 import AuditLog, { AuditAction } from "../models/auditLog.model";
+import User from "../models/user.model";
 import logger from "./logger";
 
 interface LogAuditParams {
@@ -23,11 +24,28 @@ export const logAudit = async (params: LogAuditParams): Promise<void> => {
   if (params.path !== undefined) metadata.path = params.path;
 
   try {
+    const actor = await User.findById(params.performedBy)
+      .select("name email role")
+      .lean();
+
     await AuditLog.create({
       action: params.action,
       resource: params.resource,
       resourceId: params.resourceId,
       performedBy: params.performedBy,
+      actorSnapshot: actor
+        ? {
+            userId: String(actor._id),
+            name: actor.name,
+            email: actor.email,
+            role: actor.role,
+          }
+        : {
+            userId: params.performedBy,
+            name: "Former account",
+            email: "",
+            role: "unknown",
+          },
       changes,
       metadata,
     });

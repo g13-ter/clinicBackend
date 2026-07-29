@@ -82,6 +82,7 @@ describe("Appointments - Create (staff, nurse, and doctor)", () => {
       .set("Authorization", `Bearer ${staffToken}`)
       .send({
         patientId: testPatientId,
+        doctorId,
         appointmentDate: "2026-07-01T09:00:00.000Z",
         reason: "Follow-up checkup",
         notes: "Requested by parent"
@@ -102,6 +103,7 @@ describe("Appointments - Create (staff, nurse, and doctor)", () => {
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
         patientId: testPatientId,
+        doctorId,
         appointmentDate: "2026-07-02T09:00:00.000Z",
         reason: "Post-visit follow-up"
       });
@@ -119,6 +121,7 @@ describe("Appointments - Create (staff, nurse, and doctor)", () => {
       .set("Authorization", `Bearer ${staffToken}`)
       .send({
         patientId: testPatientId,
+        doctorId,
         appointmentDate: "not-a-real-date",
         reason: "Bad date test"
       });
@@ -208,7 +211,10 @@ describe("Appointments - Status updates (staff and nurse, no real delete)", () =
     const res = await request(app)
       .put(`/api/appointments/${createdAppointmentId}`)
       .set("Authorization", `Bearer ${staffToken}`)
-      .send({ status: "cancelled" });
+      .send({
+        status: "cancelled",
+        cancellationReason: "Student is unavailable at the scheduled time",
+      });
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("cancelled");
@@ -221,10 +227,10 @@ describe("Appointments - Status updates (staff and nurse, no real delete)", () =
     const res = await request(app)
       .put(`/api/appointments/${createdAppointmentId}`)
       .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ appointmentDate: "2026-07-10T14:00:00.000Z", status: "confirmed" });
+      .send({ appointmentDate: "2026-07-10T14:00:00.000Z" });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.status).toBe("confirmed");
+    expect(res.body.data.status).toBe("pending");
     expect(new Date(res.body.data.appointmentDate).toISOString()).toBe("2026-07-10T14:00:00.000Z");
 
   });

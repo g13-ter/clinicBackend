@@ -43,6 +43,8 @@ const PatientSchema = new Schema<IPatient>(
       type: String,
       required: true,
       unique: true,
+      trim: true,
+      uppercase: true,
     },
 
     firstName: {

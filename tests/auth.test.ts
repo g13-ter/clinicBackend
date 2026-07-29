@@ -55,7 +55,28 @@ describe("Auth - Login", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.token).toBeDefined();
+    expect(res.headers["set-cookie"]?.[0]).toContain("clinic_session=");
+    expect(res.headers["set-cookie"]?.[0]).toContain("HttpOnly");
+    expect(res.body.data.user.role).toBe("staff");
 
+  });
+
+  it("restores and clears a browser session using the HttpOnly cookie", async () => {
+    const agent = request.agent(app);
+    const login = await agent
+      .post("/api/auth/login")
+      .send({ email: TEST_EMAIL, password: TEST_PASSWORD });
+    expect(login.status).toBe(200);
+
+    const active = await agent.get("/api/auth/session");
+    expect(active.status).toBe(200);
+    expect(active.body.data.user.role).toBe("staff");
+
+    const logout = await agent.post("/api/auth/logout");
+    expect(logout.status).toBe(200);
+
+    const ended = await agent.get("/api/auth/session");
+    expect(ended.status).toBe(401);
   });
 
 
