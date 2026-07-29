@@ -47,14 +47,16 @@ export class UserService {
 
   // Small lookup list for booking and schedule management.
   async getDoctors(): Promise<IUser[]> {
-    return await User.find({ role: "doctor", isActive: true })
+    // Missing isActive means a legacy account created before deactivation was
+    // introduced. Treat it as active until the idempotent backfill runs.
+    return await User.find({ role: "doctor", isActive: { $ne: false } })
       .select("name email isAvailable scheduleNotes")
       .sort({ name: 1 });
   }
 
   // Small recipient list for admin notifications.
   async getAdminEmails(): Promise<string[]> {
-    const admins = await User.find({ role: "admin", isActive: true }).select("email");
+    const admins = await User.find({ role: "admin", isActive: { $ne: false } }).select("email");
     return admins.map((admin) => admin.email);
   }
 
@@ -108,7 +110,7 @@ export class UserService {
       throw new AppError("User is already inactive", 409);
     }
     if (before.role === "admin") {
-      const activeAdminCount = await User.countDocuments({ role: "admin", isActive: true });
+      const activeAdminCount = await User.countDocuments({ role: "admin", isActive: { $ne: false } });
       if (activeAdminCount <= 1) {
         throw new AppError("The last active administrator cannot be deactivated", 409);
       }

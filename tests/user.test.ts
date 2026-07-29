@@ -15,6 +15,7 @@ let nurseId: string;
 // a user created DURING a test, that we'll clean up afterward
 let createdUserId: string | null = null;
 let createdUserEmail: string | null = null;
+let legacyDoctorId: string | null = null;
 
 
 beforeAll(async () => {
@@ -40,6 +41,9 @@ afterAll(async () => {
   if (createdUserId) {
     await deleteTestUser(createdUserId);
   }
+  if (legacyDoctorId) {
+    await deleteTestUser(legacyDoctorId);
+  }
 
   await mongoose.connection.close();
 
@@ -47,6 +51,25 @@ afterAll(async () => {
 
 
 describe("Users - Admin only access", () => {
+
+  it("includes legacy doctors whose active fields predate the current schema", async () => {
+    const inserted = await User.collection.insertOne({
+      name: "TEST Legacy Doctor",
+      email: `TEST_legacy_doctor_${Date.now()}@clinic.com`,
+      password: "not-used-by-this-test",
+      role: "doctor",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    legacyDoctorId = String(inserted.insertedId);
+
+    const res = await request(app)
+      .get("/api/users/doctors")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((doctor: { _id: string }) => doctor._id === legacyDoctorId)).toBe(true);
+  });
 
   it("allows admin to create a new user", async () => {
 

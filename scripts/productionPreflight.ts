@@ -31,7 +31,7 @@ const run = async (): Promise<void> => {
 
   await connectDB();
 
-  const activeAdmins = await User.countDocuments({ role: "admin", isActive: true });
+  const activeAdmins = await User.countDocuments({ role: "admin", isActive: { $ne: false } });
   if (activeAdmins < 1) fail("at least one active administrator is required");
 
   const [duplicateStudent] = await Patient.aggregate<{ _id: string; count: number }>([
