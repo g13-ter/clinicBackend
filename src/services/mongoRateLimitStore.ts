@@ -53,7 +53,7 @@ export class MongoRateLimitStore implements Store {
           },
         },
       ],
-      { upsert: true, new: true },
+      { upsert: true, new: true, updatePipeline: true },
     ).lean();
 
     if (!bucket) throw new Error("Rate-limit bucket could not be updated");
