@@ -7,6 +7,7 @@ import Medicine from "../src/models/medicine.model";
 import InventoryBatch from "../src/models/inventoryBatch.model";
 import PurchaseRequest from "../src/models/purchaseRequest.model";
 import NotificationOutbox from "../src/models/notificationOutbox.model";
+import StockMovement from "../src/models/stockMovement.model";
 import {
   enqueueNotification,
   processNotificationOutbox,
@@ -37,6 +38,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await Patient.deleteMany({ _id: { $in: patientIds } });
+  await StockMovement.deleteMany({ medicineId: { $in: medicineIds } });
   await InventoryBatch.deleteMany({ _id: { $in: batchIds } });
   await Medicine.deleteMany({ _id: { $in: medicineIds } });
   await PurchaseRequest.deleteMany({ _id: { $in: requestIds } });
@@ -120,6 +122,12 @@ describe("Purchase request lifecycle", () => {
     const batch = await InventoryBatch.findOne({ medicineId: medicine?._id });
     expect(medicine?.quantity).toBe(40);
     expect(batch?.quantityRemaining).toBe(40);
+    const receiptMovement = await StockMovement.findOne({
+      medicineId: medicine?._id,
+      type: "received",
+    });
+    expect(receiptMovement?.quantityChange).toBe(40);
+    expect(receiptMovement?.balanceAfter).toBe(40);
     medicineIds.push(String(medicine?._id));
     batchIds.push(String(batch?._id));
   });

@@ -7,6 +7,7 @@ import InventoryBatch from "../models/inventoryBatch.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { withMongoTransaction } from "../utils/transaction";
+import StockMovement from "../models/stockMovement.model";
 
 export interface StockChange {
   medicine: IMedicine;
@@ -152,6 +153,19 @@ export class MedicalHistoryService {
                 ...(item.instructions ? { instructions: item.instructions } : {}),
                 batchAllocations: batchAllocationsByMedicine.get(String(item.medicineId)) ?? [],
                 dispensedBy: data.recordedBy,
+              })),
+              session ? { session } : {},
+            );
+            await StockMovement.insertMany(
+              stockChanges.map((change) => ({
+                medicineId: change.medicine._id,
+                visitId: data.visitId,
+                type: "dispensed",
+                quantityChange: change.medicine.quantity - change.previousQuantity,
+                balanceAfter: change.medicine.quantity,
+                occurredAt: new Date(),
+                performedBy: data.recordedBy,
+                notes: "Dispensed during physician consultation",
               })),
               session ? { session } : {},
             );

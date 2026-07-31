@@ -67,6 +67,24 @@ const formatPeriodLabel = (start: Date, end: Date): string => {
   return `${formatDate(start)} to ${formatDate(end)}`;
 };
 
+const reportTitle = (start: Date, end: Date): string => {
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  const durationDays = Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
+
+  if (sameDay) return "DAILY MEDICAL CASE REPORT";
+  if (durationDays <= 7) return "WEEKLY MEDICAL CASE REPORT";
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth()
+  ) {
+    return "MONTHLY MEDICAL CASE REPORT";
+  }
+  return "ANNUAL MEDICAL CASE REPORT";
+};
+
 export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
   const periodLabel = formatPeriodLabel(stats.periodStart, stats.periodEnd);
 
@@ -260,7 +278,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       {
         children: [
           new Paragraph({
-            text: "SCHOOL CLINIC MONTHLY REPORT",
+            text: reportTitle(stats.periodStart, stats.periodEnd),
             heading: HeadingLevel.TITLE,
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },

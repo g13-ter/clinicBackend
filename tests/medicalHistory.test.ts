@@ -7,6 +7,7 @@ import MedicalHistory from "../src/models/medicalHistory.model";
 import ClinicVisit from "../src/models/clinicVisit.model";
 import Medicine from "../src/models/medicine.model";
 import MedicineDispense from "../src/models/medicineDispense.model";
+import StockMovement from "../src/models/stockMovement.model";
 import InventoryBatch from "../src/models/inventoryBatch.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
@@ -66,6 +67,7 @@ afterAll(async () => {
 
   await MedicalHistory.deleteMany({ visitId: { $in: createdVisitIds } });
   await MedicineDispense.deleteMany({ visitId: { $in: createdVisitIds } });
+  await StockMovement.deleteMany({ visitId: { $in: createdVisitIds } });
   await ClinicVisit.deleteMany({ _id: { $in: createdVisitIds } });
   await Medicine.deleteMany({ _id: { $in: createdMedicineIds } });
   await InventoryBatch.deleteMany({ _id: { $in: createdBatchIds } });
@@ -239,6 +241,9 @@ describe("Medical History - Create (doctor only)", () => {
     expect((await Medicine.findById(medicineId))?.quantity).toBe(5);
     const dispense = await MedicineDispense.findOne({ visitId });
     expect(dispense?.batchAllocations).toHaveLength(2);
+    const movement = await StockMovement.findOne({ visitId, type: "dispensed" });
+    expect(movement?.quantityChange).toBe(-5);
+    expect(movement?.balanceAfter).toBe(5);
   });
 
 

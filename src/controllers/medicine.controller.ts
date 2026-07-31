@@ -6,6 +6,7 @@ import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger from "../utils/logger";
+import StockMovement from "../models/stockMovement.model";
 
 const medicineService = new MedicineService();
 const userService = new UserService();
@@ -27,6 +28,18 @@ export const createMedicine = async (req: Request, res: Response, next: NextFunc
       dateReceived,
       lastUpdatedBy: getAuthenticatedObjectId(req),
     });
+
+    if (medicine.quantity > 0) {
+      await StockMovement.create({
+        medicineId: medicine._id,
+        type: "initial_stock",
+        quantityChange: medicine.quantity,
+        balanceAfter: medicine.quantity,
+        occurredAt: medicine.dateReceived ?? new Date(),
+        performedBy: getAuthenticatedObjectId(req),
+        notes: "Initial stock recorded when medicine was created",
+      });
+    }
 
     logAudit({
       action: "create",
@@ -85,6 +98,17 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
       ...req.body,
       lastUpdatedBy: getAuthenticatedObjectId(req),
     });
+
+    if (before.quantity !== after.quantity) {
+      await StockMovement.create({
+        medicineId: after._id,
+        type: "adjustment",
+        quantityChange: after.quantity - before.quantity,
+        balanceAfter: after.quantity,
+        performedBy: getAuthenticatedObjectId(req),
+        notes: "Manual inventory quantity adjustment",
+      });
+    }
 
     logAudit({
       action: "update",

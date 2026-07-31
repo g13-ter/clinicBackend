@@ -1,11 +1,19 @@
 import { Request, Response, NextFunction } from "express";
 import { ReportService } from "../services/report.service";
 import { buildReportDocx } from "../utils/reportDocx";
+import { buildAnnualMedicationXls } from "../utils/annualMedicationXls";
 import { AppError } from "../middleware/error.middleware";
 
 const reportService = new ReportService();
 
 type ExportType =
+  | "inventory-current"
+  | "inventory-movements"
+  | "inventory-batches"
+  | "inventory-reorder"
+  | "medication-consumption"
+  | "medication-usage-details"
+  | "medication-inventory"
   | "inventory-stock"
   | "inventory-usage"
   | "inventory-expiry"
@@ -13,6 +21,13 @@ type ExportType =
   | "vaccination-status";
 
 const exportTypes: readonly ExportType[] = [
+  "inventory-current",
+  "inventory-movements",
+  "inventory-batches",
+  "inventory-reorder",
+  "medication-consumption",
+  "medication-usage-details",
+  "medication-inventory",
   "inventory-stock",
   "inventory-usage",
   "inventory-expiry",
@@ -101,6 +116,25 @@ export const getClinicSummaryReport = async (
   }
 };
 
+export const getAnnualMedicationReport = async (
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const report = await reportService.getAnnualMedicationReport();
+    const buffer = buildAnnualMedicationXls(report);
+    res.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="Annual_Medication_${report.schoolYear}.xls"`,
+    );
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const exportReportCsv = async (
   req: Request,
   res: Response,
@@ -117,6 +151,178 @@ export const exportReportCsv = async (
       req.query.endDate as string | undefined,
     );
     const dateSuffix = `${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}`;
+
+    if (type === "inventory-current" || type === "inventory-batches") {
+      const stock = await reportService.getCurrentStockByBatch();
+      const rows = type === "inventory-batches"
+        ? [...stock].sort(
+            (a, b) =>
+              (a.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER) -
+              (b.expiryDate?.getTime() ?? Number.MAX_SAFE_INTEGER),
+          )
+        : stock;
+      sendCsv(
+        res,
+        `${type === "inventory-current" ? "Current_Stock" : "Expiry_and_Batch"}_${dateSuffix}.csv`,
+        [
+          "Medicine",
+          "Category",
+          "Batch Number",
+          "Batch Quantity Remaining",
+          "Total Medicine Stock",
+          "Unit",
+          "Supplier",
+          "Date Received",
+          "Expiration Date",
+          "Status",
+        ],
+        rows.map((item) => [
+          item.medicine,
+          item.category,
+          item.batchNumber,
+          item.quantityRemaining,
+          item.totalMedicineStock,
+          item.unit,
+          item.supplier,
+          item.receivedAt,
+          item.expiryDate,
+          item.status,
+        ]),
+      );
+      return;
+    }
+
+    if (type === "inventory-movements") {
+      const movements = await reportService.getStockMovementExport(startDate, endDate);
+      sendCsv(
+        res,
+        `Stock_Movement_${dateSuffix}.csv`,
+        [
+          "Date",
+          "Medicine",
+          "Transaction Type",
+          "Quantity Change",
+          "Balance After",
+          "Unit",
+          "Batch Number",
+          "Responsible Staff",
+          "Notes",
+        ],
+        movements.map((item) => [
+          item.occurredAt,
+          item.medicine,
+          item.type,
+          item.quantityChange,
+          item.balanceAfter,
+          item.unit,
+          item.batchNumber,
+          item.performedBy,
+          item.notes,
+        ]),
+      );
+      return;
+    }
+
+    if (type === "inventory-reorder") {
+      const reorder = await reportService.getReorderExport();
+      sendCsv(
+        res,
+        `Reorder_Report_${dateSuffix}.csv`,
+        [
+          "Medicine",
+          "Category",
+          "Current Stock",
+          "Unit",
+          "Reorder Threshold",
+          "Pending Order Quantity",
+          "Suggested Order Quantity",
+          "Status",
+        ],
+        reorder.map((item) => [
+          item.medicine,
+          item.category,
+          item.currentStock,
+          item.unit,
+          item.reorderThreshold,
+          item.pendingOrderQuantity,
+          item.suggestedOrderQuantity,
+          item.status,
+        ]),
+      );
+      return;
+    }
+
+    if (type === "medication-consumption") {
+      const usage = await reportService.getMedicineUsageExport(startDate, endDate);
+      sendCsv(
+        res,
+        `Medication_Consumption_${dateSuffix}.csv`,
+        ["Medication", "Unit", "Quantity Dispensed", "Students / Dispense Transactions"],
+        usage.map((item) => [
+          item.name,
+          item.unit,
+          item.quantityDispensed,
+          item.dispenseCount,
+        ]),
+      );
+      return;
+    }
+
+    if (type === "medication-usage-details") {
+      const details = await reportService.getMedicationUsageDetails(startDate, endDate);
+      sendCsv(
+        res,
+        `Medication_Usage_Details_${dateSuffix}.csv`,
+        [
+          "Date",
+          "Student ID",
+          "Student",
+          "Reason for Visit",
+          "Medication",
+          "Quantity",
+          "Unit",
+          "Instructions",
+          "Recorded / Dispensed By",
+        ],
+        details.map((item) => [
+          item.dispensedAt,
+          item.studentId,
+          item.studentName,
+          item.complaint,
+          item.medicine,
+          item.quantity,
+          item.unit,
+          item.instructions,
+          item.recordedBy,
+        ]),
+      );
+      return;
+    }
+
+    if (type === "medication-inventory") {
+      const medicationReport = await reportService.getMedicationInventoryReport(startDate, endDate);
+      sendCsv(
+        res,
+        `Medication_Inventory_Report_${dateSuffix}.csv`,
+        [
+          "Name of Medication",
+          "Date Medication Received",
+          "Total Number Prescribed",
+          "Total Remaining Stock On Hand",
+          "Expiration Date",
+          "Remarks",
+        ],
+        medicationReport.map((item) => [
+          item.name,
+          item.dateReceived,
+          item.totalPrescribed,
+          item.remainingStock,
+          item.expirationDate,
+          item.remarks,
+        ]),
+      );
+      return;
+    }
 
     if (type === "inventory-stock" || type === "inventory-expiry") {
       const inventory = await reportService.getInventoryExport();

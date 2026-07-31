@@ -197,6 +197,39 @@ describe("Clinic Summary Report - custom date range", () => {
 });
 
 describe("CSV report exports", () => {
+  it.each([
+    ["inventory-current", "Medicine"],
+    ["inventory-movements", "Transaction Type"],
+    ["inventory-batches", "Batch Number"],
+    ["inventory-reorder", "Suggested Order Quantity"],
+    ["medication-consumption", "Quantity Dispensed"],
+    ["medication-usage-details", "Recorded / Dispensed By"],
+  ])("exports the %s report", async (reportType, expectedHeader) => {
+    const res = await request(app)
+      .get(`/api/reports/export/${reportType}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.text).toContain(expectedHeader);
+  });
+
+  it("exports the medication inventory columns requested by the clinic", async () => {
+    const res = await request(app)
+      .get("/api/reports/export/medication-inventory")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.headers["content-disposition"]).toMatch(/Medication_Inventory_Report/);
+    expect(res.text).toContain("Name of Medication");
+    expect(res.text).toContain("Date Medication Received");
+    expect(res.text).toContain("Total Number Prescribed");
+    expect(res.text).toContain("Total Remaining Stock On Hand");
+    expect(res.text).toContain("Expiration Date");
+    expect(res.text).toContain("Remarks");
+  });
+
   it("exports inventory stock as a CSV attachment", async () => {
     const res = await request(app)
       .get("/api/reports/export/inventory-stock")
@@ -216,5 +249,22 @@ describe("CSV report exports", () => {
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/unsupported/i);
+  });
+});
+
+describe("Annual medication report", () => {
+  it("exports an Excel-compatible school-year medication matrix", async () => {
+    const res = await request(app)
+      .get("/api/reports/annual-medication")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/application\/vnd\.ms-excel/);
+    expect(res.headers["content-disposition"]).toMatch(/Annual_Medication_/);
+    expect(res.text).toContain("ANNUAL MEDICATION");
+    expect(res.text).toContain("Name of Medication");
+    expect(res.text).toContain(">July</th>");
+    expect(res.text).toContain("Total Stocks");
+    expect(res.text).toContain("Total Remaining");
   });
 });

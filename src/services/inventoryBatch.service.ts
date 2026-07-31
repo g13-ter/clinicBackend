@@ -2,6 +2,7 @@ import InventoryBatch, { IInventoryBatch } from "../models/inventoryBatch.model"
 import Medicine from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { withMongoTransaction } from "../utils/transaction";
+import StockMovement from "../models/stockMovement.model";
 
 export class InventoryBatchService {
   async createBatch(data: {
@@ -26,10 +27,21 @@ export class InventoryBatchService {
       }], session ? { session } : {});
       if (!batch) throw new Error("Inventory batch was not created");
 
-      await Medicine.findByIdAndUpdate(data.medicineId, {
+      const updatedMedicine = await Medicine.findByIdAndUpdate(data.medicineId, {
         $inc: { quantity: data.quantityReceived },
         $set: { lastUpdatedBy: data.receivedBy },
-      }, session ? { session } : {});
+      }, { returnDocument: "after", ...(session ? { session } : {}) });
+      if (!updatedMedicine) throw new AppError("Medicine not found", 404);
+      await StockMovement.create([{
+        medicineId: updatedMedicine._id,
+        batchId: batch._id,
+        type: "received",
+        quantityChange: data.quantityReceived,
+        balanceAfter: updatedMedicine.quantity,
+        occurredAt: batch.receivedAt,
+        performedBy: data.receivedBy,
+        notes: `Received batch ${batch.batchNumber}`,
+      }], session ? { session } : {});
       return batch;
     });
   }

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "../src/app";
 import Medicine from "../src/models/medicine.model";
 import PurchaseRequest from "../src/models/purchaseRequest.model";
+import StockMovement from "../src/models/stockMovement.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
@@ -45,6 +46,7 @@ afterAll(async () => {
   await deleteTestUser(staffId);
 
   if (createdMedicineId) {
+    await StockMovement.deleteMany({ medicineId: createdMedicineId });
     await Medicine.findByIdAndDelete(createdMedicineId);
   }
   if (createdPurchaseRequestId) {
@@ -73,6 +75,11 @@ describe("Medicine Inventory - Create (nurse only)", () => {
     expect(res.status).toBe(201);
 
     createdMedicineId = res.body.data._id;
+    const initialMovement = await StockMovement.findOne({
+      medicineId: createdMedicineId,
+      type: "initial_stock",
+    });
+    expect(initialMovement?.quantityChange).toBe(5);
 
   });
 
@@ -156,6 +163,12 @@ describe("Medicine Inventory - Low stock detection", () => {
       .send({ quantity: 100 });
 
     expect(updateRes.status).toBe(200);
+    const adjustment = await StockMovement.findOne({
+      medicineId: createdMedicineId,
+      type: "adjustment",
+    }).sort({ occurredAt: -1 });
+    expect(adjustment?.quantityChange).toBe(95);
+    expect(adjustment?.balanceAfter).toBe(100);
 
     const listRes = await request(app)
       .get("/api/medicines")

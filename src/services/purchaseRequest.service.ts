@@ -4,6 +4,7 @@ import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { Types } from "mongoose";
 import InventoryBatch from "../models/inventoryBatch.model";
+import StockMovement from "../models/stockMovement.model";
 import { withMongoTransaction } from "../utils/transaction";
 
 interface CreatePurchaseRequestInput {
@@ -213,7 +214,7 @@ export class PurchaseRequestService {
       }
       if (!medicine) throw new Error("Received medicine was not created");
 
-      await InventoryBatch.create([{
+      const [receivedBatch] = await InventoryBatch.create([{
         medicineId: medicine._id,
         batchNumber: data.batchNumber,
         quantityReceived: data.quantityReceived,
@@ -222,14 +223,26 @@ export class PurchaseRequestService {
         ...(data.supplier || before.supplier ? { supplier: data.supplier || before.supplier } : {}),
         receivedBy: data.receivedBy,
       }], session ? { session } : {});
-      await Medicine.findByIdAndUpdate(
+      if (!receivedBatch) throw new Error("Received inventory batch was not created");
+      const updatedMedicine = await Medicine.findByIdAndUpdate(
         medicine._id,
         {
           $inc: { quantity: data.quantityReceived },
           $set: { lastUpdatedBy: data.receivedBy, ...(data.supplier ? { supplier: data.supplier } : {}) },
         },
-        session ? { session } : {},
+        { returnDocument: "after", ...(session ? { session } : {}) },
       );
+      if (!updatedMedicine) throw new AppError("Medicine not found", 404);
+      await StockMovement.create([{
+        medicineId: updatedMedicine._id,
+        batchId: receivedBatch._id,
+        type: "received",
+        quantityChange: data.quantityReceived,
+        balanceAfter: updatedMedicine.quantity,
+        occurredAt: receivedBatch.receivedAt,
+        performedBy: data.receivedBy,
+        notes: `Received approved purchase request batch ${data.batchNumber}`,
+      }], session ? { session } : {});
       const after = await PurchaseRequest.findOneAndUpdate(
         { _id: id, status: { $in: ["approved", "ordered"] } },
         {
