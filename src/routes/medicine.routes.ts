@@ -12,7 +12,8 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createMedicineSchema, updateMedicineSchema } from "../validators/schemas";
+import { createMedicineSchema, createInventoryBatchSchema, updateMedicineSchema } from "../validators/schemas";
+import { createInventoryBatch, getInventoryBatches } from "../controllers/inventoryBatch.controller";
 
 const router = express.Router();
 
@@ -44,12 +45,15 @@ router.get(
   getExpiringMedicines
 );
 
+router.post("/:id/batches", protect, allowRoles("nurse"), validateBody(createInventoryBatchSchema), createInventoryBatch);
+router.get("/:id/batches", protect, allowRoles("nurse", "doctor", "admin"), getInventoryBatches);
+
 
 // Nurse + Doctor - view all medicines
 router.get(
   "/",
   protect,
-  allowRoles("admin","nurse", "doctor"),
+  allowRoles("admin", "nurse", "doctor"),
   getMedicines
 );
 

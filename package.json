@@ -6,8 +6,15 @@
   "scripts": {
     "dev": "nodemon src/server.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "start": "node dist/server.js",
+    "start:worker": "node dist/worker.js",
     "test": "jest --runInBand",
+    "check": "npm run typecheck && npm test && npm run build",
+    "db:create-indexes": "ts-node scripts/createIndexes.ts",
+    "preflight:production": "ts-node scripts/productionPreflight.ts",
+    "backup:create": "node scripts/backup.mjs",
+    "backup:verify": "node scripts/verifyBackup.mjs",
     "seed-admin": "ts-node tests/seedAdmin.ts",
     "generate-secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
     "debug-default": "ts-node tests/debugDefault.ts"

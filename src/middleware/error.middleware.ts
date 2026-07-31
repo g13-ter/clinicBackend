@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import logger from "../utils/logger";
+import { randomUUID } from "node:crypto";
 
 
-// Custom error class - lets controllers throw an error with a
-// specific status code attached (e.g. 404, 400) instead of always 500
+// Application error with an HTTP status code.
 export class AppError extends Error {
 
   statusCode: number;
@@ -16,43 +16,45 @@ export class AppError extends Error {
 }
 
 
-// Centralized error handler - this is the LAST piece of middleware
-// in server.ts. Every error in the app eventually lands here.
-//
-// IMPORTANT: error handlers in Express must take exactly 4 arguments
-// (req, res, next, AND err first) - that 4-argument shape is how
-// Express recognizes this as an error handler instead of a normal route.
+// Express identifies error handlers by their four-argument signature.
 export const errorHandler = (
-  err: any,
+  err: unknown,
   req: Request,
   res: Response,
-  next: NextFunction
-) => {
+  _next: NextFunction
+): void => {
+  const errorDetails =
+    typeof err === "object" && err !== null
+      ? err as { statusCode?: unknown; message?: unknown }
+      : {};
+  const statusCode =
+    typeof errorDetails.statusCode === "number" ? errorDetails.statusCode : 500;
+  const message =
+    typeof errorDetails.message === "string"
+      ? errorDetails.message
+      : "Something went wrong on the server";
+  const errorId = randomUUID();
 
-  const statusCode = err.statusCode || 500;
-
-  // 4xx errors (validation, access denied, not found) are expected
-  // outcomes of normal use - log them as warnings, not full errors.
-  // 5xx means something actually broke - log the full error + stack.
   if (statusCode >= 500) {
-    logger.error(err);
+    logger.error({
+      errorId,
+      release: process.env.RELEASE_SHA || "development",
+      method: req.method,
+      path: req.originalUrl,
+      error: err,
+    });
   } else {
-    logger.warn(`${req.method} ${req.originalUrl} -> ${statusCode}: ${err.message}`);
+    logger.warn(`${req.method} ${req.originalUrl} -> ${statusCode}: ${message}`);
   }
 
-  // the client only ever sees a short, safe message -
-  // never raw error objects, stack traces, or internal details
-  const message = err.message || "Something went wrong on the server";
-
   res.status(statusCode).json({
-    message
+    message: statusCode >= 500 ? "Something went wrong on the server" : message,
+    ...(statusCode >= 500 ? { errorId } : {}),
   });
-
 };
 
 
-// Catches requests to URLs that don't match any route at all
-// (placed right before errorHandler in server.ts)
+// Convert unmatched routes into application errors.
 export const notFoundHandler = (
   req: Request,
   res: Response,

@@ -1,4 +1,5 @@
 import AuditLog, { AuditAction } from "../models/auditLog.model";
+import User from "../models/user.model";
 import logger from "./logger";
 
 interface LogAuditParams {
@@ -12,11 +13,8 @@ interface LogAuditParams {
   path?: string;
 }
 
-// Writes one audit log entry for data changes (create / update / delete).
-// Read-only endpoints are intentionally not logged — see controller comments.
-// Fire-and-forget on purpose: if writing the log fails (DB hiccup, etc.),
-// we record it in the normal app logger and move on — never a 500 for the user.
-export const logAudit = (params: LogAuditParams): void => {
+// Record data changes without allowing audit failures to fail the request.
+export const logAudit = async (params: LogAuditParams): Promise<void> => {
   const changes: { before?: Record<string, unknown>; after?: Record<string, unknown> } = {};
   if (params.before !== undefined) changes.before = params.before;
   if (params.after !== undefined) changes.after = params.after;
@@ -25,17 +23,36 @@ export const logAudit = (params: LogAuditParams): void => {
   if (params.method !== undefined) metadata.method = params.method;
   if (params.path !== undefined) metadata.path = params.path;
 
-  AuditLog.create({
-    action: params.action,
-    resource: params.resource,
-    resourceId: params.resourceId,
-    performedBy: params.performedBy,
-    changes,
-    metadata,
-  }).catch((error) => {
+  try {
+    const actor = await User.findById(params.performedBy)
+      .select("name email role")
+      .lean();
+
+    await AuditLog.create({
+      action: params.action,
+      resource: params.resource,
+      resourceId: params.resourceId,
+      performedBy: params.performedBy,
+      actorSnapshot: actor
+        ? {
+            userId: String(actor._id),
+            name: actor.name,
+            email: actor.email,
+            role: actor.role,
+          }
+        : {
+            userId: params.performedBy,
+            name: "Former account",
+            email: "",
+            role: "unknown",
+          },
+      changes,
+      metadata,
+    });
+  } catch (error) {
     logger.error(
       `Failed to write audit log (${params.action} ${params.resource} ${params.resourceId}):`,
       error
     );
-  });
+  }
 };

@@ -17,11 +17,7 @@ let nurseId: string;
 let createdPatientId: string | null = null;
 let createdStaffUserId: string | null = null;
 
-// Audit log writes are fire-and-forget (the controller does not await
-// them), so a write can still be in flight when the very next request
-// checks for it. This small helper polls a few times instead of
-// asserting immediately - it's testing for "the entry shows up shortly
-// after", which is the real, honest behavior of this system.
+// Poll because audit writes complete asynchronously.
 const waitForAuditEntry = async (
   filterQuery: string,
   token: string,

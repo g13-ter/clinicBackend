@@ -20,8 +20,7 @@ const MedicineSchema = new Schema<IMedicine>(
       index: true,
     },
 
-    // e.g. "Analgesic", "Antibiotic", "First Aid", "PPE" - free text so the
-    // clinic isn't locked into a fixed list of categories.
+    // Free text keeps categories configurable.
     category: {
       type: String,
     },

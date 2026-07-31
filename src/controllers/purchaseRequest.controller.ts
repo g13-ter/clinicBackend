@@ -4,7 +4,7 @@ import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
-import { mailer } from "../services/mailer.service";
+import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger from "../utils/logger";
 import type { PurchaseRequestStatus } from "../models/purchaseRequest.model";
 
@@ -15,10 +15,13 @@ const userService = new UserService();
 export const createPurchaseRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const requestingUser = getAuthenticatedUser(req);
-    const { medicineId, quantityRequested, reason } = req.body;
+    const { medicineId, itemName, unit, category, quantityRequested, reason } = req.body;
 
     const purchaseRequest = await purchaseRequestService.createRequest({
       medicineId,
+      itemName,
+      unit,
+      category,
       quantityRequested,
       reason,
       requestedBy: getAuthenticatedObjectId(req),
@@ -40,8 +43,7 @@ export const createPurchaseRequest = async (req: Request, res: Response, next: N
       data: purchaseRequest,
     });
 
-    // Fire-and-forget: response already sent above, email failure must
-    // never affect it.
+    // Email failures must not affect the completed request.
     (async () => {
       try {
         const [adminEmails, requester] = await Promise.all([
@@ -51,12 +53,16 @@ export const createPurchaseRequest = async (req: Request, res: Response, next: N
 
         await Promise.all(
           adminEmails.map((to) =>
-            mailer.sendPurchaseRequestSubmitted({
-              to,
-              itemName: purchaseRequest.itemName,
-              quantityRequested: purchaseRequest.quantityRequested,
-              requestedByName: requester.name,
-              reason: purchaseRequest.reason,
+            enqueueNotification({
+              kind: "purchase_request",
+              recipient: to,
+              dedupeKey: `purchase-request:${purchaseRequest._id}:${to}`,
+              payload: {
+                itemName: purchaseRequest.itemName,
+                quantityRequested: purchaseRequest.quantityRequested,
+                requestedByName: requester.name,
+                reason: purchaseRequest.reason,
+              },
             })
           )
         );
@@ -69,8 +75,7 @@ export const createPurchaseRequest = async (req: Request, res: Response, next: N
   }
 };
 
-// GET ALL — read-only, not audit-logged. Optional ?status= filter
-// (nurse typically checks their own pending requests; admin reviews all).
+// GET ALL — optional status filter, not audit-logged
 export const getPurchaseRequests = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const status = req.query.status as PurchaseRequestStatus | undefined;
@@ -133,6 +138,68 @@ export const reviewPurchaseRequest = async (req: Request, res: Response, next: N
       success: true,
       message: `Purchase request ${status} successfully`,
       data: after,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const markPurchaseRequestOrdered = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const { before, after } = await purchaseRequestService.markOrdered(req.params.id as string, {
+      ...req.body,
+      reviewedBy: getAuthenticatedObjectId(req),
+    });
+    await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: String(after._id), performedBy: user.id, before: before.toObject(), after: after.toObject(), method: req.method, path: req.originalUrl });
+    res.status(200).json({ success: true, message: "Purchase request marked as ordered", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelPurchaseRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const { before, after } = await purchaseRequestService.cancelRequest(
+      req.params.id as string,
+      {
+        reviewNotes: req.body.reviewNotes,
+        reviewedBy: getAuthenticatedObjectId(req),
+      },
+    );
+    await logAudit({
+      action: "update",
+      resource: "PurchaseRequest",
+      resourceId: String(after._id),
+      performedBy: user.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+    res.status(200).json({
+      success: true,
+      message: "Purchase request cancelled",
+      data: after,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const receivePurchaseRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const user = getAuthenticatedUser(req);
+    const result = await purchaseRequestService.receiveRequest(req.params.id as string, {
+      ...req.body,
+      receivedBy: getAuthenticatedObjectId(req),
+    });
+    await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: String(result.after._id), performedBy: user.id, before: result.before.toObject(), after: result.after.toObject(), method: req.method, path: req.originalUrl });
+    res.status(200).json({
+      success: true,
+      message: "Delivery received and inventory updated",
+      data: result.after,
     });
   } catch (error) {
     next(error);

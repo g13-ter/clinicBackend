@@ -1,5 +1,4 @@
-// Minimal isolated test: does Patient's isActive default actually work
-// when nothing else (Express, zod, Jest) is involved at all?
+// Isolate the Patient isActive default from the application stack.
 // Run with: npm run debug-default
 
 import mongoose from "mongoose";

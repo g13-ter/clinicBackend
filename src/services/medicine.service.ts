@@ -20,19 +20,31 @@ const getExpiryFlags = (expiryDate: Date | undefined | null) => {
   };
 };
 
-// Single computed status label per the inventory spec:
-// Available | Low Stock | Out of Stock | Expired.
-// Expired takes priority (an expired item isn't "available" no matter the
-// quantity), then out-of-stock, then low-stock, else available.
+// Status priority: Expired, Out of Stock, Low Stock, Available.
 export type MedicineStatus = "Available" | "Low Stock" | "Out of Stock" | "Expired";
 
-export const computeStatus = (med: IMedicine): MedicineStatus => {
+interface MedicineStatusFields {
+  expiryDate?: Date;
+  quantity: number;
+  lowStockThreshold: number;
+}
+
+export const computeStatus = (med: MedicineStatusFields): MedicineStatus => {
   const { isExpired } = getExpiryFlags(med.expiryDate);
   if (isExpired) return "Expired";
   if (med.quantity <= 0) return "Out of Stock";
   if (med.quantity <= med.lowStockThreshold) return "Low Stock";
   return "Available";
 };
+
+const toMedicineView = (medicine: IMedicine) => ({
+  ...medicine.toObject(),
+  isLowStock: medicine.quantity <= medicine.lowStockThreshold,
+  ...getExpiryFlags(medicine.expiryDate),
+  status: computeStatus(medicine),
+});
+
+export type MedicineView = ReturnType<typeof toMedicineView>;
 
 export class MedicineService {
   async createMedicine(data: Partial<IMedicine>): Promise<IMedicine> {
@@ -42,8 +54,8 @@ export class MedicineService {
   async getMedicines(
     { limit, skip }: PaginationParams,
     search?: string
-  ): Promise<{ medicines: (IMedicine & { isLowStock: boolean; isExpired: boolean; isExpiringSoon: boolean })[]; total: number }> {
-    const filter: any = {};
+  ): Promise<{ medicines: MedicineView[]; total: number }> {
+    const filter: { name?: { $regex: string; $options: "i" } } = {};
 
     if (search) {
       filter.name = { $regex: escapeRegex(search), $options: "i" };
@@ -59,29 +71,19 @@ export class MedicineService {
     ]);
 
     return {
-      medicines: medicines.map((med: IMedicine) => ({
-        ...med.toObject(),
-        isLowStock: med.quantity <= med.lowStockThreshold,
-        ...getExpiryFlags(med.expiryDate),
-        status: computeStatus(med),
-      })),
+      medicines: medicines.map(toMedicineView),
       total,
     };
   }
 
-  async getMedicineById(id: string): Promise<any> {
+  async getMedicineById(id: string): Promise<MedicineView> {
     const medicine = await Medicine.findById(id).populate("lastUpdatedBy", "name role");
 
     if (!medicine) {
       throw new AppError("Medicine not found", 404);
     }
 
-    return {
-      ...medicine.toObject(),
-      isLowStock: medicine.quantity <= medicine.lowStockThreshold,
-      ...getExpiryFlags(medicine.expiryDate),
-      status: computeStatus(medicine),
-    };
+    return toMedicineView(medicine);
   }
 
   async updateMedicine(id: string, data: Partial<IMedicine>): Promise<{ before: IMedicine; after: IMedicine }> {

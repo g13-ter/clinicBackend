@@ -6,15 +6,15 @@ import type { UserRole } from "../types/roles";
  */
 export const PERMISSIONS = {
   patients: {
-    create: ["nurse"] as const satisfies readonly UserRole[],
-    listFull: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
+    create: ["staff", "nurse"] as const satisfies readonly UserRole[],
+    listFull: ["staff", "doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     listBasic: ["staff"] as const satisfies readonly UserRole[],
-    viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
-    update: ["nurse"] as const satisfies readonly UserRole[],
+    viewById: ["staff", "doctor", "nurse"] as const satisfies readonly UserRole[],
+    update: ["staff", "nurse"] as const satisfies readonly UserRole[],
     archive: ["admin"] as const satisfies readonly UserRole[],
   },
   appointments: {
-    create: ["staff", "nurse"] as const satisfies readonly UserRole[],
+    create: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     list: ["staff", "nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
     viewById: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     update: ["staff", "nurse"] as const satisfies readonly UserRole[],
@@ -34,12 +34,14 @@ export const PERMISSIONS = {
     review: ["admin"] as const satisfies readonly UserRole[],
   },
   visits: {
-    create: ["nurse"] as const satisfies readonly UserRole[],
-    list: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
+    create: ["staff", "nurse"] as const satisfies readonly UserRole[],
+    list: ["staff", "doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     todayCount: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
-    update: ["nurse"] as const satisfies readonly UserRole[],
-    archive: ["nurse"] as const satisfies readonly UserRole[],
+    update: ["nurse", "doctor"] as const satisfies readonly UserRole[],
+    recordVitals: ["nurse"] as const satisfies readonly UserRole[],
+    recordConsultation: ["doctor"] as const satisfies readonly UserRole[],
+    archive: ["admin"] as const satisfies readonly UserRole[],
   },
   medicalHistory: {
     create: ["doctor"] as const satisfies readonly UserRole[],
@@ -47,6 +49,7 @@ export const PERMISSIONS = {
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["doctor"] as const satisfies readonly UserRole[],
     delete: ["doctor"] as const satisfies readonly UserRole[],
+    generateCertificate: ["doctor"] as const satisfies readonly UserRole[],
   },
   users: {
     manage: ["admin"] as const satisfies readonly UserRole[],
@@ -56,10 +59,13 @@ export const PERMISSIONS = {
     view: ["admin"] as const satisfies readonly UserRole[],
   },
   reports: {
-    generate: ["admin"] as const satisfies readonly UserRole[],
+    generate: ["admin", "nurse"] as const satisfies readonly UserRole[],
   },
   dashboard: {
     view: ["admin", "doctor", "nurse", "staff"] as const satisfies readonly UserRole[],
+  },
+  systemSettings: {
+    manage: ["admin"] as const satisfies readonly UserRole[],
   },
 } as const;
 

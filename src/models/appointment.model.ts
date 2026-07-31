@@ -5,11 +5,20 @@ export interface IAppointment extends Document {
   doctorId?: mongoose.Types.ObjectId;
   appointmentDate: Date;
   reason: string;
+  cancellationReason?: string;
   status: string;
   notes: string;
   reminderSent: boolean;
+  reminderClaimedAt?: Date;
+  durationMinutes: number;
+  type: "regular" | "follow_up";
+  sourceVisitId?: mongoose.Types.ObjectId;
+  visitId?: mongoose.Types.ObjectId;
+  checkedInAt?: Date;
   createdBy: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const AppointmentSchema = new Schema<IAppointment>(
@@ -21,9 +30,7 @@ const AppointmentSchema = new Schema<IAppointment>(
       index: true,
     },
 
-    // The doctor selected for this appointment. Optional at the schema level
-    // (some clinics book "next available doctor" without pinning one down
-    // up front), but the frontend's booking flow always collects it.
+    // Optional to support "next available doctor" workflows.
     doctorId: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -40,9 +47,15 @@ const AppointmentSchema = new Schema<IAppointment>(
       required: true,
     },
 
+    cancellationReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled", "completed"],
+      enum: ["pending", "confirmed", "checked_in", "cancelled", "completed"],
       default: "pending",
     },
 
@@ -50,12 +63,44 @@ const AppointmentSchema = new Schema<IAppointment>(
       type: String,
     },
 
-    // Set true once the 24h-before reminder email has gone out, so the
-    // reminder sweep (see reminder.service.ts) never double-sends one.
+    // Prevent duplicate reminder emails.
     reminderSent: {
       type: Boolean,
       default: false,
     },
+
+    // Short lease used by reminder workers to prevent duplicate sends.
+    reminderClaimedAt: {
+      type: Date,
+      index: true,
+    },
+
+    durationMinutes: {
+      type: Number,
+      min: 5,
+      max: 480,
+      default: 30,
+    },
+
+    type: {
+      type: String,
+      enum: ["regular", "follow_up"],
+      default: "regular",
+      index: true,
+    },
+
+    sourceVisitId: {
+      type: Schema.Types.ObjectId,
+      ref: "ClinicVisit",
+    },
+
+    visitId: {
+      type: Schema.Types.ObjectId,
+      ref: "ClinicVisit",
+      index: true,
+    },
+
+    checkedInAt: Date,
 
     createdBy: {
       type: Schema.Types.ObjectId,

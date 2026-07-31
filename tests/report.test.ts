@@ -8,12 +8,7 @@ import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
 
-// Supertest/superagent does not automatically buffer unrecognized binary
-// content types (like our .docx mimetype) into res.body as a real
-// Buffer - without this, res.body comes back as an empty object and
-// any attempt to read it fails silently. This custom parser collects
-// the raw response bytes ourselves instead of relying on the default
-// JSON/text parsing path.
+// Buffer DOCX responses that Supertest does not parse automatically.
 const binaryParser = (res: any, callback: (err: Error | null, body: Buffer) => void) => {
   res.setEncoding("binary");
   let data = "";
@@ -33,11 +28,7 @@ let nurseId: string;
 let testPatientId: string;
 let testVisitId: string;
 
-// A .docx file is a ZIP archive under the hood. Every ZIP file starts
-// with this exact 2-byte signature ("PK"). Checking for it is a cheap,
-// reliable way to confirm the response is a real binary file and not,
-// say, an error page or empty buffer - without needing to fully parse
-// the document's XML contents.
+// DOCX files use the ZIP "PK" signature.
 const ZIP_SIGNATURE = Buffer.from([0x50, 0x4b]);
 
 const isValidDocxBuffer = (buffer: Buffer): boolean =>
@@ -56,8 +47,7 @@ beforeAll(async () => {
   nurseToken = nurse.token;
   nurseId = nurse.userId;
 
-  // one real patient + one real visit, so the report has actual data
-  // to summarize rather than testing only the empty-state path
+  // Seed reportable clinic data.
   const patient = await Patient.create({
     studentId: `TEST-REPORT-${Date.now()}`,
     firstName: "Report",
@@ -97,13 +87,13 @@ afterAll(async () => {
 
 describe("Clinic Summary Report - access control", () => {
 
-  it("blocks a NURSE from generating the report", async () => {
+  it("allows a NURSE to generate the report", async () => {
 
     const res = await request(app)
       .get("/api/reports/clinic-summary")
       .set("Authorization", `Bearer ${nurseToken}`);
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
 
   });
 
@@ -199,12 +189,82 @@ describe("Clinic Summary Report - custom date range", () => {
 
     expect(isValidDocxBuffer(res.body)).toBe(true);
 
-    // a real, populated report should be noticeably larger than a
-    // minimal/empty one - this isn't an exact check, just a sanity
-    // floor confirming the document actually has the attendance and
-    // complaints tables filled in, not just empty placeholder text
+    // Sanity-check that the populated report contains more than placeholders.
     expect(res.body.length).toBeGreaterThan(3000);
 
   });
 
+});
+
+describe("CSV report exports", () => {
+  it.each([
+    ["inventory-current", "Medicine"],
+    ["inventory-movements", "Transaction Type"],
+    ["inventory-batches", "Batch Number"],
+    ["inventory-reorder", "Suggested Order Quantity"],
+    ["medication-consumption", "Quantity Dispensed"],
+    ["medication-usage-details", "Recorded / Dispensed By"],
+  ])("exports the %s report", async (reportType, expectedHeader) => {
+    const res = await request(app)
+      .get(`/api/reports/export/${reportType}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.text).toContain(expectedHeader);
+  });
+
+  it("exports the medication inventory columns requested by the clinic", async () => {
+    const res = await request(app)
+      .get("/api/reports/export/medication-inventory")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.headers["content-disposition"]).toMatch(/Medication_Inventory_Report/);
+    expect(res.text).toContain("Name of Medication");
+    expect(res.text).toContain("Date Medication Received");
+    expect(res.text).toContain("Total Number Prescribed");
+    expect(res.text).toContain("Total Remaining Stock On Hand");
+    expect(res.text).toContain("Expiration Date");
+    expect(res.text).toContain("Remarks");
+  });
+
+  it("exports inventory stock as a CSV attachment", async () => {
+    const res = await request(app)
+      .get("/api/reports/export/inventory-stock")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/text\/csv/);
+    expect(res.headers["content-disposition"]).toMatch(/Inventory_Stock/);
+    expect(res.text).toContain("Medicine");
+    expect(res.text).toContain("Low Stock Threshold");
+  });
+
+  it("rejects an unsupported export type", async () => {
+    const res = await request(app)
+      .get("/api/reports/export/not-a-report")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/unsupported/i);
+  });
+});
+
+describe("Annual medication report", () => {
+  it("exports an Excel-compatible school-year medication matrix", async () => {
+    const res = await request(app)
+      .get("/api/reports/annual-medication")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/application\/vnd\.ms-excel/);
+    expect(res.headers["content-disposition"]).toMatch(/Annual_Medication_/);
+    expect(res.text).toContain("ANNUAL MEDICATION");
+    expect(res.text).toContain("Name of Medication");
+    expect(res.text).toContain(">July</th>");
+    expect(res.text).toContain("Total Stocks");
+    expect(res.text).toContain("Total Remaining");
+  });
 });

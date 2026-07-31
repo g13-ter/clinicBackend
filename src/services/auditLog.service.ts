@@ -1,4 +1,5 @@
 import AuditLog, { IAuditLog, AuditAction } from "../models/auditLog.model";
+import User from "../models/user.model";
 import { PaginationParams } from "../utils/pagination";
 
 export interface AuditLogFilters {
@@ -8,12 +9,37 @@ export interface AuditLogFilters {
   performedBy?: string;
 }
 
+interface AuditLogQuery {
+  resource?: string;
+  resourceId?: string;
+  action?: AuditAction | { $ne: "view" };
+  performedBy?: string;
+}
+
 export class AuditLogService {
   async getLogs(
     filters: AuditLogFilters,
     { limit, skip }: PaginationParams
-  ): Promise<{ logs: IAuditLog[]; total: number }> {
-    const filter: any = {};
+  ): Promise<{
+    logs: Array<{
+      _id: unknown;
+      action: AuditAction;
+      resource: string;
+      resourceId: string;
+      performedBy: { _id: string; name: string; email: string; role: string } | string;
+      actorSnapshot?: {
+        userId: string;
+        name: string;
+        email: string;
+        role: string;
+      };
+      changes?: IAuditLog["changes"];
+      metadata?: IAuditLog["metadata"];
+      createdAt: Date;
+    }>;
+    total: number;
+  }> {
+    const filter: AuditLogQuery = {};
 
     if (filters.resource) filter.resource = filters.resource;
     if (filters.resourceId) filter.resourceId = filters.resourceId;
@@ -25,14 +51,39 @@ export class AuditLogService {
     }
     if (filters.performedBy) filter.performedBy = filters.performedBy;
 
-    const [logs, total] = await Promise.all([
+    const [rawLogs, total] = await Promise.all([
       AuditLog.find(filter)
-        .populate("performedBy", "name role email")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       AuditLog.countDocuments(filter),
     ]);
+
+    // Resolve live users in one query while retaining the original ObjectId
+    // when the referenced account no longer exists.
+    const actorIds = [...new Set(rawLogs.map((log) => String(log.performedBy)))];
+    const actors = await User.find({ _id: { $in: actorIds } })
+      .select("name role email")
+      .lean();
+    const actorsById = new Map(
+      actors.map((actor) => [
+        String(actor._id),
+        {
+          _id: String(actor._id),
+          name: actor.name,
+          email: actor.email,
+          role: actor.role,
+        },
+      ]),
+    );
+    const logs = rawLogs.map((log) => {
+      const actorId = String(log.performedBy);
+      return {
+        ...log,
+        performedBy: actorsById.get(actorId) ?? actorId,
+      };
+    });
 
     return { logs, total };
   }

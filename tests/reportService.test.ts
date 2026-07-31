@@ -102,9 +102,7 @@ describe("ReportService - student attendance by gender", () => {
 
     const stats = await reportService.getClinicSummary(startDate, endDate);
 
-    // these are TEST-prefixed visits added to whatever else may exist
-    // in the dev database within this narrow time window, so we check
-    // "at least" rather than an exact total
+    // Shared databases may contain additional visits in this time range.
     expect(stats.studentAttendance.male).toBeGreaterThanOrEqual(1);
     expect(stats.studentAttendance.female).toBeGreaterThanOrEqual(2);
     expect(stats.studentAttendance.total).toBeGreaterThanOrEqual(3);
@@ -134,8 +132,7 @@ describe("ReportService - student attendance by gender", () => {
     expect(feverEntry).toBeDefined();
     expect(feverEntry?.count).toBe(1);
 
-    // verify the sort order: headache (2 cases) should appear before
-    // fever (1 case) in the results
+    // Higher-frequency complaints appear first.
     const headacheIndex = stats.complaintCounts.findIndex((c) => c.complaint === "TEST_RSVC_Headache");
     const feverIndex = stats.complaintCounts.findIndex((c) => c.complaint === "TEST_RSVC_Fever");
     expect(headacheIndex).toBeLessThan(feverIndex);

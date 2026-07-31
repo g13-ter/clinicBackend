@@ -5,8 +5,7 @@ import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
 
-// All authenticated roles - each dashboard just displays a different
-// subset of these same aggregate counts.
+// Each role displays a subset of the same aggregate data.
 router.get(
   "/stats",
   protect,

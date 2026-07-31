@@ -11,10 +11,10 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
-// Parses page/limit query params into safe numbers.
-// Falls back to page 1 / limit 10 if missing or invalid.
-// Caps limit at 100 so no one can request the entire collection in one go.
-export const getPaginationParams = (query: any): PaginationParams => {
+// Parse safe pagination values and cap page size at 100.
+export const getPaginationParams = (
+  query: { page?: unknown; limit?: unknown },
+): PaginationParams => {
   let page = Number(query.page) || 1;
   let limit = Number(query.limit) || 10;
 

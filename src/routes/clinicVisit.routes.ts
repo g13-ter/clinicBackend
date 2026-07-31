@@ -6,13 +6,17 @@ import {
   getVisitById,
   updateVisit,
   archiveVisit,
-  getTodayVisitCount
+  getTodayVisitCount,
+  getQueue,
+  markReadyForDoctor,
+  updateVisitStatus,
+  downloadReferralForm,
 } from "../controllers/clinicVisit.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createVisitSchema, updateVisitSchema } from "../validators/schemas";
+import { createVisitSchema, updateVisitSchema, updateVisitStatusSchema } from "../validators/schemas";
 
 const router = express.Router();
 
@@ -26,11 +30,21 @@ router.get(
 );
 
 
-// Nurse only - create visit
+// Staff, nurse, doctor and admin - clinic-wide queue.
+// Must come before "/:id" so "queue" isn't swallowed as an :id param.
+router.get(
+  "/queue",
+  protect,
+  allowRoles("staff", "nurse", "doctor", "admin"),
+  getQueue
+);
+
+
+// Staff checks in and nurses may create triage/clinical visit records.
 router.post(
   "/",
   protect,
-  allowRoles("nurse"),
+  allowRoles("staff", "nurse"),
   validateBody(createVisitSchema),
   createVisit
 );
@@ -54,13 +68,37 @@ router.get(
 );
 
 
-// Nurse only - update their own logged visit
+// Nurses and doctors update the active clinical record.
 router.put(
   "/:id",
   protect,
-  allowRoles("nurse"),
+  allowRoles("nurse", "doctor"),
   validateBody(updateVisitSchema),
   updateVisit
+);
+
+
+// Nurse only - mark a patient ready for the doctor after triage/vitals
+router.put(
+  "/:id/ready",
+  protect,
+  allowRoles("nurse"),
+  markReadyForDoctor
+);
+
+router.get(
+  "/:id/referral-form",
+  protect,
+  allowRoles("nurse", "doctor"),
+  downloadReferralForm,
+);
+
+router.put(
+  "/:id/status",
+  protect,
+  allowRoles("nurse", "doctor"),
+  validateBody(updateVisitStatusSchema),
+  updateVisitStatus
 );
 
 

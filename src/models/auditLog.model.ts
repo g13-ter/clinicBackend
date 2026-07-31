@@ -1,19 +1,21 @@
 import mongoose, { Schema, Document } from "mongoose";
 
-// Permanent record of every action taken on tracked resources.
-// Unlike createdBy/updatedBy on individual records (which only show the
-// MOST RECENT change), this collection never gets edited or deleted -
-// it's a full history of who did what, to which record, and when.
+// Append-only history of changes to tracked resources.
 
-export type AuditAction = "create" | "update" | "delete" | "view";
+export type AuditAction = "create" | "update" | "delete" | "deactivate" | "reactivate" | "view";
 
 export interface IAuditLog extends Document {
   action: AuditAction;
   resource: string;        // e.g. "Patient", "ClinicVisit"
   resourceId: string;      // the _id of the record acted on (string, not ObjectId -
-                            // a deleted/archived record's id should still be readable
-                            // in old logs even if the record itself is gone)
+                            // Preserve references to removed records.
   performedBy: mongoose.Types.ObjectId;
+  actorSnapshot?: {
+    userId: string;
+    name: string;
+    email: string;
+    role: string;
+  };
   changes?: {
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
@@ -29,7 +31,7 @@ const AuditLogSchema = new Schema<IAuditLog>(
   {
     action: {
       type: String,
-      enum: ["create", "update", "delete", "view"],
+      enum: ["create", "update", "delete", "deactivate", "reactivate", "view"],
       required: true,
       index: true,
     },
@@ -53,6 +55,15 @@ const AuditLogSchema = new Schema<IAuditLog>(
       index: true,
     },
 
+    // Keep the actor identity immutable even if the live account is later
+    // renamed or deleted.
+    actorSnapshot: {
+      userId: { type: String },
+      name: { type: String },
+      email: { type: String },
+      role: { type: String },
+    },
+
     changes: {
       before: { type: Schema.Types.Mixed },
       after: { type: Schema.Types.Mixed },
@@ -64,8 +75,7 @@ const AuditLogSchema = new Schema<IAuditLog>(
     },
   },
   {
-    // only createdAt - there is intentionally no updatedAt.
-    // Audit entries are write-once and never modified after creation.
+    // Audit entries are immutable.
     timestamps: { createdAt: true, updatedAt: false },
   }
 );

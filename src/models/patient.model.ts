@@ -11,6 +11,27 @@ export interface IPatient extends Document {
   contactNumber: string;
   email?: string;
   address: string;
+  dateOfBirth?: Date;
+  bloodType?: string;
+  guardianName?: string;
+  guardianContactNumber?: string;
+  healthConditions?: string;
+  medicalAlerts?: {
+    allergies: string[];
+    chronicConditions: string[];
+    currentMedications: string[];
+    notes?: string;
+  };
+  consents?: {
+    treatment: boolean;
+    medicineAdministration: boolean;
+    dataPrivacy: boolean;
+    guardianName?: string;
+    updatedAt?: Date;
+  };
+  schoolYear?: string;
+  enrollmentStatus: "active" | "graduated" | "transferred";
+  immunizations?: { vaccine: string; dateAdministered?: Date; notes?: string }[];
   isActive: boolean;
   createdBy?: mongoose.Types.ObjectId;
   updatedBy?: mongoose.Types.ObjectId;
@@ -22,6 +43,8 @@ const PatientSchema = new Schema<IPatient>(
       type: String,
       required: true,
       unique: true,
+      trim: true,
+      uppercase: true,
     },
 
     firstName: {
@@ -60,9 +83,7 @@ const PatientSchema = new Schema<IPatient>(
       required: true,
     },
 
-    // Optional - used to send appointment confirmation/reminder emails.
-    // Not every student has one on file, so appointment booking still
-    // works without it; the email just won't be sent.
+    // Optional address for appointment emails.
     email: {
       type: String,
     },
@@ -71,6 +92,37 @@ const PatientSchema = new Schema<IPatient>(
       type: String,
       required: true,
     },
+
+    dateOfBirth: Date,
+    bloodType: String,
+    guardianName: String,
+    guardianContactNumber: String,
+    healthConditions: String,
+    medicalAlerts: {
+      allergies: { type: [String], default: [] },
+      chronicConditions: { type: [String], default: [] },
+      currentMedications: { type: [String], default: [] },
+      notes: String,
+    },
+    consents: {
+      treatment: { type: Boolean, default: false },
+      medicineAdministration: { type: Boolean, default: false },
+      dataPrivacy: { type: Boolean, default: false },
+      guardianName: String,
+      updatedAt: Date,
+    },
+    schoolYear: String,
+    enrollmentStatus: {
+      type: String,
+      enum: ["active", "graduated", "transferred"],
+      default: "active",
+      index: true,
+    },
+    immunizations: [{
+      vaccine: { type: String, required: true },
+      dateAdministered: Date,
+      notes: String,
+    }],
 
     isActive: {
       type: Boolean,

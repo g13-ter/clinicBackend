@@ -13,19 +13,7 @@ import {
 } from "docx";
 import { ReportStats } from "../services/report.service";
 
-// Builds an actual .docx file (as a Buffer) matching the official
-// School Clinic Monthly Report template. Runs entirely on the server -
-// no external service call, so generation is near-instant.
-//
-// Sections this system CAN fill in with real data: Executive Summary,
-// Clinic Attendance (students only, by gender), Common Reasons for
-// Visits, Medicine Stock, and a low-stock note under Issues & Concerns.
-//
-// Sections this system genuinely does NOT track - Health Programs,
-// Referrals, and Accidents/Emergencies as a distinct category - are
-// clearly labeled as "Not tracked by system - please complete manually"
-// rather than presented as empty tables, so whoever reads the report
-// doesn't mistake "no data" for "zero occurred."
+// Build the monthly report and mark untracked sections for manual completion.
 
 const NOT_TRACKED_NOTE = "Not tracked by system - please complete manually.";
 
@@ -65,6 +53,9 @@ const blankLine = (label: string): Paragraph =>
     spacing: { after: 100 },
   });
 
+const configuredLine = (label: string, value?: string): Paragraph =>
+  value ? new Paragraph({ children: [new TextRun({ text: `${label}: `, bold: true }), new TextRun({ text: value })], spacing: { after: 100 } }) : blankLine(label);
+
 const formatDate = (date: Date): string =>
   date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 
@@ -76,10 +67,28 @@ const formatPeriodLabel = (start: Date, end: Date): string => {
   return `${formatDate(start)} to ${formatDate(end)}`;
 };
 
+const reportTitle = (start: Date, end: Date): string => {
+  const sameDay =
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate();
+  const durationDays = Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
+
+  if (sameDay) return "DAILY MEDICAL CASE REPORT";
+  if (durationDays <= 7) return "WEEKLY MEDICAL CASE REPORT";
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth()
+  ) {
+    return "MONTHLY MEDICAL CASE REPORT";
+  }
+  return "ANNUAL MEDICAL CASE REPORT";
+};
+
 export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
   const periodLabel = formatPeriodLabel(stats.periodStart, stats.periodEnd);
 
-  // ----- I. Executive Summary -----
+  // I. Executive Summary
   const totalVisits = stats.studentAttendance.total;
   const executiveSummary =
     (totalVisits > 0
@@ -87,9 +96,11 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
         `A total of ${totalVisits} student ${totalVisits === 1 ? "visit" : "visits"} ${totalVisits === 1 ? "was" : "were"} recorded during this period. `
       : `This report presents the activities and services provided by the school clinic for ${periodLabel}. ` +
         `No clinic visits were recorded during this period. `) +
+    `${stats.uniqueStudentsServed} unique ${stats.uniqueStudentsServed === 1 ? "student was" : "students were"} served through ${totalVisits} clinic visits. ` +
     `${stats.appointmentStats.total} ${stats.appointmentStats.total === 1 ? "appointment was" : "appointments were"} booked in this period ` +
     `(${stats.appointmentStats.completed} completed, ${stats.appointmentStats.cancelled} cancelled), and ` +
-    `${stats.consultationsCount} doctor ${stats.consultationsCount === 1 ? "consultation was" : "consultations were"} logged. ` +
+    `${stats.nursingAssessmentsCount} nursing ${stats.nursingAssessmentsCount === 1 ? "assessment was" : "assessments were"} and ` +
+    `${stats.physicianMedicalRecordsCount} physician medical ${stats.physicianMedicalRecordsCount === 1 ? "record was" : "records were"} logged. ` +
     `${stats.lowStockMedicines.length > 0
       ? `${stats.lowStockMedicines.length} medicine ${stats.lowStockMedicines.length === 1 ? "item is" : "items are"} currently running low and may require restocking.`
       : `Medicine inventory levels are currently adequate.`} ` +
@@ -97,7 +108,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       ? `${stats.pendingPurchaseRequestsCount} purchase ${stats.pendingPurchaseRequestsCount === 1 ? "request is" : "requests are"} currently pending admin review.`
       : `There are no pending purchase requests at this time.`}`;
 
-  // ----- II. Clinic Attendance table -----
+  // II. Clinic Attendance
   const attendanceTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -106,7 +117,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       }),
       new TableRow({
         children: [
-          bodyCell("Students"),
+          bodyCell("Clinic Visits (Students)"),
           bodyCell(String(stats.studentAttendance.male), true),
           bodyCell(String(stats.studentAttendance.female), true),
           bodyCell(String(stats.studentAttendance.total), true),
@@ -130,7 +141,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       }),
       new TableRow({
         children: [
-          headerCell("Total Patients"),
+          headerCell("Total Clinic Visits"),
           headerCell(String(stats.studentAttendance.male)),
           headerCell(String(stats.studentAttendance.female)),
           headerCell(String(stats.studentAttendance.total)),
@@ -139,7 +150,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
     ],
   });
 
-  // ----- III. Common Reasons for Visits table -----
+  // III. Common Reasons for Visits
   const complaintRows = stats.complaintCounts.length > 0
     ? stats.complaintCounts.map(
         (c) =>
@@ -161,21 +172,20 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
     ],
   });
 
-  // ----- IV. Medicines and Supplies table -----
+  // IV. Medicine Inventory
   const medicineRows = stats.medicineStock.length > 0
     ? stats.medicineStock.map(
         (m) =>
           new TableRow({
             children: [
               bodyCell(m.name),
-              bodyCell("Not tracked", true),
               bodyCell(`${m.remainingStock} ${m.unit}${m.isLowStock ? " (LOW)" : ""}`, true),
             ],
           })
       )
     : [
         new TableRow({
-          children: [bodyCell("No medicines in inventory."), bodyCell("-", true), bodyCell("-", true)],
+          children: [bodyCell("No medicines in inventory."), bodyCell("-", true)],
         }),
       ];
 
@@ -183,23 +193,19 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
       new TableRow({
-        children: [headerCell("Medicine/Supply"), headerCell("Quantity Used"), headerCell("Remaining Stock")],
+        children: [headerCell("Medicine/Supply"), headerCell("Current Stock")],
       }),
       ...medicineRows,
     ],
   });
 
-  // ----- VIII. Issues and Concerns -----
+  // VIII. Issues and Concerns
   const lowStockLine =
     stats.lowStockMedicines.length > 0
       ? stats.lowStockMedicines.map((m) => `${m.name} (${m.remainingStock} ${m.unit} remaining)`).join(", ")
       : "None at this time.";
 
-  // ----- Appointments & Consultations (additional system data) -----
-  // Not part of the official monthly report template's numbered sections,
-  // but genuine system-recorded data worth surfacing - kept separate from
-  // the numbered sections above so it doesn't disturb the official
-  // template's numbering.
+  // Additional system data outside the official numbered sections.
   const appointmentsTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
@@ -216,10 +222,17 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
     ],
   });
 
-  // ----- IX. Recommendations - genuinely data-driven, not a fixed list -----
-  // Each recommendation only appears if the underlying data actually
-  // supports it, and cites the real figures - so this section changes
-  // meaningfully between reports instead of reading the same every time.
+  const referralsTable = stats.referrals.length > 0
+    ? new Table({
+        width: { size: 100, type: WidthType.PERCENTAGE },
+        rows: [
+          new TableRow({ children: [headerCell("Receiving Facility"), headerCell("Reason"), headerCell("Outcome / Follow-up")] }),
+          ...stats.referrals.map((referral) => new TableRow({ children: [bodyCell(referral.facility), bodyCell(referral.reason), bodyCell(referral.outcome || "Pending follow-up")] })),
+        ],
+      })
+    : null;
+
+  // IX. Data-driven Recommendations
   const recommendations: string[] = [];
 
   if (stats.lowStockMedicines.length > 0) {
@@ -265,14 +278,14 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       {
         children: [
           new Paragraph({
-            text: "SCHOOL CLINIC MONTHLY REPORT",
+            text: reportTitle(stats.periodStart, stats.periodEnd),
             heading: HeadingLevel.TITLE,
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },
           }),
 
-          blankLine("School"),
-          blankLine("School Clinic"),
+          configuredLine("School", process.env.SCHOOL_NAME),
+          configuredLine("School Clinic", process.env.CLINIC_NAME),
           new Paragraph({
             children: [
               new TextRun({ text: "Month & Year: ", bold: true }),
@@ -280,11 +293,11 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
             ],
             spacing: { after: 100 },
           }),
-          blankLine("Prepared by"),
+          configuredLine("Prepared by", process.env.REPORT_PREPARED_BY),
           new Paragraph({
             children: [
               new TextRun({ text: "Position: ", bold: true }),
-              new TextRun({ text: "School Nurse/Clinic Staff" }),
+              new TextRun({ text: process.env.REPORT_PREPARER_POSITION || "School Nurse/Clinic Staff" }),
             ],
             spacing: { after: 100 },
           }),
@@ -299,11 +312,11 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           sectionHeading("III. Common Reasons for Clinic Visits"),
           complaintsTable,
 
-          sectionHeading("IV. Medicines and Supplies Dispensed"),
+          sectionHeading("IV. Medicine Inventory Snapshot"),
           new Paragraph({
             children: [
               new TextRun({
-                text: "Note: this system tracks current stock levels, not a historical dispensing log, so \"Quantity Used\" is not available and is marked accordingly below.",
+                text: "Current inventory snapshot. Dispensed quantities require a medicine dispensing ledger and are not shown in this report.",
                 italics: true,
                 size: 18,
               }),
@@ -314,7 +327,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
 
           sectionHeading("Appointments & Consultations Summary (System Data)"),
           new Paragraph({
-            text: `${stats.consultationsCount} doctor ${stats.consultationsCount === 1 ? "consultation was" : "consultations were"} recorded in this period.`,
+            text: `${stats.nursingAssessmentsCount} nursing assessments and ${stats.physicianMedicalRecordsCount} physician medical records were logged in this period. Appointment statuses reflect their status when this report was generated.`,
             spacing: { after: 150 },
           }),
           appointmentsTable,
@@ -323,12 +336,13 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           new Paragraph({ text: NOT_TRACKED_NOTE, spacing: { after: 200 } }),
 
           sectionHeading("VI. Referrals"),
-          new Paragraph({ text: NOT_TRACKED_NOTE, spacing: { after: 200 } }),
+          ...(referralsTable ? [referralsTable] : [new Paragraph({ text: "No referrals recorded in this period.", spacing: { after: 200 } })]),
 
           sectionHeading("VII. Accidents and Emergencies"),
-          new Paragraph({ text: NOT_TRACKED_NOTE, spacing: { after: 200 } }),
+          new Paragraph({ text: `${stats.emergencyCount} emergency ${stats.emergencyCount === 1 ? "case was" : "cases were"} recorded in this period.`, spacing: { after: 200 } }),
 
           sectionHeading("VIII. Issues and Concerns"),
+          ...(stats.hasTestData ? [new Paragraph({ text: "Data quality warning: test or demo records were detected. Remove or archive them before formal submission.", spacing: { after: 100 } })] : []),
           new Paragraph({
             children: [
               new TextRun({ text: "Shortage of medicines: ", bold: true }),
@@ -346,11 +360,11 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
 
           sectionHeading("X. Prepared By"),
           new Paragraph({ children: [new TextRun({ text: "Prepared by:", bold: true })], spacing: { after: 150 } }),
-          blankLine("Name"),
-          blankLine("Position"),
+          configuredLine("Name", process.env.REPORT_PREPARED_BY),
+          configuredLine("Position", process.env.REPORT_PREPARER_POSITION),
           blankLine("Signature"),
           new Paragraph({ children: [new TextRun({ text: "Noted by:", bold: true })], spacing: { before: 200, after: 150 } }),
-          blankLine("School Principal"),
+          configuredLine("School Principal", process.env.SCHOOL_PRINCIPAL),
           blankLine("Signature"),
 
           new Paragraph({

@@ -4,14 +4,11 @@ import User from "../src/models/user.model";
 import bcrypt from "bcryptjs";
 
 
-// A consistent password used for every test account we create -
-// these are throwaway accounts that only exist during test runs.
+// Shared password for temporary test accounts.
 export const TEST_PASSWORD = "testpass123";
 
 
-// Creates one test user with a given role, directly in the database
-// (bypassing the API, since the API itself is what we're testing).
-// Returns the user's real JWT token, ready to use in requests.
+// Create a test user directly and return a valid JWT.
 export const createTestUserAndLogin = async (
   role: "admin" | "doctor" | "nurse" | "staff",
   emailPrefix: string
@@ -45,7 +42,7 @@ export const createTestUserAndLogin = async (
 };
 
 
-// Deletes a test user directly - used in afterAll cleanup
+// Delete a test user during cleanup.
 export const deleteTestUser = async (userId: string) => {
 
   await User.findByIdAndDelete(userId);

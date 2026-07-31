@@ -1,53 +1,74 @@
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import cron from "node-cron";
+import type { Server } from "node:http";
 import connectDB from "./config/db";
 import app from "./app";
 import { validateEnv } from "./utils/validateEnv";
 import logger from "./utils/logger";
-import { sendDueReminders } from "./services/reminder.service";
+import { startBackgroundJobs } from "./jobs/backgroundJobs";
 
 dotenv.config();
 validateEnv();
 
-connectDB();
+const PORT = Number(process.env.PORT) || 5000;
+const HOST = "0.0.0.0";
+let server: Server | undefined;
+let backgroundJobs: ReturnType<typeof startBackgroundJobs> | undefined;
+let shuttingDown = false;
 
-const PORT: number = Number(process.env.PORT) || 5000;
+const start = async (): Promise<void> => {
+  await connectDB();
 
-const server = app.listen(PORT, () => {
-  logger.info(`Server running on Port ${PORT}`);
-});
-
-// Runs every hour, on the hour. Finds appointments ~24h out and sends a
-// reminder email for each (see reminder.service.ts). This keeps working
-// as long as this process stays running; on platforms where the process
-// restarts frequently, trigger POST /api/internal/send-reminders from an
-// external scheduler instead (or in addition - the sweep is idempotent).
-const reminderTask = cron.schedule("0 * * * *", async () => {
-  try {
-    const result = await sendDueReminders();
-    logger.info(`Scheduled reminder sweep complete: ${JSON.stringify(result)}`);
-  } catch (error) {
-    logger.error("Scheduled reminder sweep failed:", error);
-  }
-});
-
-const shutdown = (signal: string): void => {
-  logger.info(`${signal} received — closing server`);
-  reminderTask.stop();
-  server.close(() => {
-    mongoose.connection
-      .close()
-      .then(() => {
-        logger.info("MongoDB connection closed");
-        process.exit(0);
-      })
-      .catch((error) => {
-        logger.error("Error closing MongoDB connection:", error);
-        process.exit(1);
-      });
+  server = app.listen(PORT, HOST, () => {
+    logger.info(`Server running on http://${HOST}:${PORT}`);
   });
+
+  const runJobsInApi =
+    process.env.RUN_BACKGROUND_JOBS_IN_API === "true" ||
+    (process.env.NODE_ENV !== "production" && process.env.RUN_BACKGROUND_JOBS_IN_API !== "false");
+  if (runJobsInApi) backgroundJobs = startBackgroundJobs();
 };
 
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
+const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  logger.info(`${signal} received - draining server`);
+  backgroundJobs?.stop();
+
+  const forcedExit = setTimeout(() => {
+    logger.error("Graceful shutdown timed out");
+    process.exit(1);
+  }, 10_000);
+  forcedExit.unref();
+
+  try {
+    if (server) {
+      await new Promise<void>((resolve, reject) => {
+        server!.close((error) => error ? reject(error) : resolve());
+      });
+    }
+    await mongoose.connection.close();
+    clearTimeout(forcedExit);
+    logger.info("Server shutdown complete");
+    process.exit(exitCode);
+  } catch (error) {
+    logger.error("Graceful shutdown failed:", error);
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection:", reason);
+  void shutdown("unhandledRejection", 1);
+});
+process.on("uncaughtException", (error) => {
+  logger.error("Uncaught exception:", error);
+  void shutdown("uncaughtException", 1);
+});
+
+void start().catch((error) => {
+  logger.error("Server startup failed:", error);
+  void shutdown("startupFailure", 1);
+});

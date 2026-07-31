@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import app from "../src/app";
 import Medicine from "../src/models/medicine.model";
+import PurchaseRequest from "../src/models/purchaseRequest.model";
+import StockMovement from "../src/models/stockMovement.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
@@ -15,6 +17,7 @@ let staffToken: string;
 let staffId: string;
 
 let createdMedicineId: string | null = null;
+let createdPurchaseRequestId: string | null = null;
 
 
 beforeAll(async () => {
@@ -43,7 +46,11 @@ afterAll(async () => {
   await deleteTestUser(staffId);
 
   if (createdMedicineId) {
+    await StockMovement.deleteMany({ medicineId: createdMedicineId });
     await Medicine.findByIdAndDelete(createdMedicineId);
+  }
+  if (createdPurchaseRequestId) {
+    await PurchaseRequest.findByIdAndDelete(createdPurchaseRequestId);
   }
 
   await mongoose.connection.close();
@@ -68,6 +75,11 @@ describe("Medicine Inventory - Create (nurse only)", () => {
     expect(res.status).toBe(201);
 
     createdMedicineId = res.body.data._id;
+    const initialMovement = await StockMovement.findOne({
+      medicineId: createdMedicineId,
+      type: "initial_stock",
+    });
+    expect(initialMovement?.quantityChange).toBe(5);
 
   });
 
@@ -151,6 +163,12 @@ describe("Medicine Inventory - Low stock detection", () => {
       .send({ quantity: 100 });
 
     expect(updateRes.status).toBe(200);
+    const adjustment = await StockMovement.findOne({
+      medicineId: createdMedicineId,
+      type: "adjustment",
+    }).sort({ occurredAt: -1 });
+    expect(adjustment?.quantityChange).toBe(95);
+    expect(adjustment?.balanceAfter).toBe(100);
 
     const listRes = await request(app)
       .get("/api/medicines")
@@ -245,4 +263,40 @@ describe("Medicine Inventory - Expiring/Expired", () => {
 
   });
 
+});
+
+describe("Medicine Inventory - Staff access", () => {
+  it("blocks STAFF from viewing or editing inventory", async () => {
+    const listResponse = await request(app)
+      .get("/api/medicines")
+      .set("Authorization", `Bearer ${staffToken}`);
+    const updateResponse = await request(app)
+      .put(`/api/medicines/${createdMedicineId}`)
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({ quantity: 999 });
+
+    expect(listResponse.status).toBe(403);
+    expect(updateResponse.status).toBe(403);
+  });
+});
+
+describe("Medicine Purchasing - New items", () => {
+  it("allows a nurse to request a medicine not yet in inventory", async () => {
+    const response = await request(app)
+      .post("/api/purchase-requests")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        itemName: "TEST Cetirizine",
+        unit: "tablets",
+        category: "Antihistamine",
+        quantityRequested: 100,
+        reason: "Needed for allergy cases",
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.requestType).toBe("new_item");
+    expect(response.body.data.itemName).toBe("TEST Cetirizine");
+    expect(response.body.data.medicineId).toBeUndefined();
+    createdPurchaseRequestId = response.body.data._id;
+  });
 });

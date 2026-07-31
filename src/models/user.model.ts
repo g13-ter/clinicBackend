@@ -6,6 +6,12 @@ export interface IUser extends Document {
   email: string;
   password: string;
   role: UserRole;
+  isActive: boolean;
+  sessionVersion: number;
+  deactivatedAt?: Date;
+  deactivatedBy?: mongoose.Types.ObjectId;
+  isAvailable: boolean;
+  scheduleNotes?: string;
 }
 
 const UserSchema = new Schema<IUser>(
@@ -19,6 +25,8 @@ const UserSchema = new Schema<IUser>(
       type: String,
       required: true,
       unique: true,
+      lowercase: true,
+      trim: true,
     },
 
     password: {
@@ -31,6 +39,13 @@ const UserSchema = new Schema<IUser>(
       required: true,
       enum: ["admin", "doctor", "nurse", "staff"],
     },
+
+    isActive: { type: Boolean, default: true, index: true },
+    sessionVersion: { type: Number, default: 0, select: false },
+    deactivatedAt: Date,
+    deactivatedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    isAvailable: { type: Boolean, default: true },
+    scheduleNotes: String,
   },
   {
     timestamps: true,

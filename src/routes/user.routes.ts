@@ -4,6 +4,8 @@ import {
   createUser,
   getUsers,
   getUserById,
+  getDoctors,
+  getCurrentUserProfile,
   updateUser,
   deleteUser,
 } from "../controllers/user.controller";
@@ -14,6 +16,21 @@ import { validateBody } from "../middleware/validate.middleware";
 import { registerSchema, updateUserSchema } from "../validators/schemas";
 
 const router = express.Router();
+
+
+// Keep this static route before "/:id".
+router.get(
+  "/doctors",
+  protect,
+  allowRoles("staff", "nurse", "doctor", "admin"),
+  getDoctors
+);
+
+router.get(
+  "/me",
+  protect,
+  getCurrentUserProfile
+);
 
 
 // GET ALL USERS

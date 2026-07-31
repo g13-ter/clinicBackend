@@ -1,10 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 
-// For endpoints meant to be called by a trusted system (an external cron
-// job, a deploy hook) rather than a logged-in user - so they use a shared
-// secret header instead of the normal JWT flow. If INTERNAL_API_KEY isn't
-// configured, these endpoints are locked out entirely rather than left
-// open, since an unset secret is not a safe "allow all" default.
+// Authenticate trusted system calls with a shared secret; deny all if unset.
 export const requireInternalKey = (req: Request, res: Response, next: NextFunction): void => {
   const configuredKey = process.env.INTERNAL_API_KEY;
 

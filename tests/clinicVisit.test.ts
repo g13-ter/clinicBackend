@@ -70,7 +70,7 @@ afterAll(async () => {
 });
 
 
-describe("Clinic Visits - Create (nurse only)", () => {
+describe("Clinic Visits - Create (clinical roles)", () => {
 
   it("allows a NURSE to log a visit with vitals", async () => {
 
@@ -96,14 +96,14 @@ describe("Clinic Visits - Create (nurse only)", () => {
   });
 
 
-  it("blocks a DOCTOR from creating a visit (view only role)", async () => {
+  it("requires a NURSE or STAFF member to create the visit before doctor consultation", async () => {
 
     const res = await request(app)
       .post("/api/visits")
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({
         patientId: testPatientId,
-        complaint: "Should not be allowed"
+        complaint: "Doctor consultation"
       });
 
     expect(res.status).toBe(403);
@@ -125,6 +125,28 @@ describe("Clinic Visits - Create (nurse only)", () => {
 
   });
 
+  it("rejects implausible vital signs with field-specific validation", async () => {
+    const res = await request(app)
+      .post("/api/visits")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: testPatientId,
+        complaint: "Vital validation",
+        bloodPressure: "129/23",
+        temperature: 23,
+        pulseRate: 4324,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ field: "bloodPressure" }),
+        expect.objectContaining({ field: "temperature" }),
+        expect.objectContaining({ field: "pulseRate" }),
+      ]),
+    );
+  });
+
 });
 
 
@@ -142,6 +164,25 @@ describe("Clinic Visits - View permissions", () => {
 
   });
 
+  it("shows a visit in the doctor queue only after the nurse marks it ready", async () => {
+    const before = await request(app)
+      .get("/api/visits/queue")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(before.body.data.some((visit: { _id: string }) => visit._id === createdVisitId)).toBe(false);
+
+    const ready = await request(app)
+      .put(`/api/visits/${createdVisitId}/ready`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+    expect(ready.status).toBe(200);
+    expect(ready.body.data.status).toBe("ready_for_doctor");
+
+    const after = await request(app)
+      .get("/api/visits/queue")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(after.body.data.some((visit: { _id: string }) => visit._id === createdVisitId)).toBe(true);
+  });
+
 
   it("blocks ADMIN from viewing clinic visits (medical data)", async () => {
 
@@ -157,6 +198,25 @@ describe("Clinic Visits - View permissions", () => {
 
 
 describe("Clinic Visits - Archive (admin only)", () => {
+
+  it("allows a doctor to record a referral with its required details", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "referred", referralFacility: "City Hospital", referralReason: "Further assessment" });
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("referred");
+  });
+
+  it("rejects a referral without facility and reason", async () => {
+    const visit = await ClinicVisit.create({ patientId: testPatientId, complaint: "TEST referral validation", recordedBy: nurseId });
+    const res = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "referred" });
+    expect(res.status).toBe(400);
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
 
   it("blocks a NURSE from archiving a visit", async () => {
 
@@ -190,4 +250,26 @@ describe("Clinic Visits - Archive (admin only)", () => {
 
   });
 
+});
+
+describe("Clinic Visits - Field-level clinical permissions", () => {
+  it("blocks a DOCTOR from changing nurse-recorded vital signs", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ temperature: 38.2 });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/only be recorded or updated by a nurse/i);
+  });
+
+  it("blocks a NURSE from recording physician consultation findings", async () => {
+    const res = await request(app)
+      .put(`/api/visits/${createdVisitId}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ consultationFindings: "Physician diagnosis" });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/only be recorded by a doctor/i);
+  });
 });
