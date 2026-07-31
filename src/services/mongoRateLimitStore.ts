@@ -36,10 +36,25 @@ export class MongoRateLimitStore implements Store {
     const nextReset = new Date(now.getTime() + this.windowMs);
     const activeWindow = { $gt: [{ $ifNull: ["$resetTime", new Date(0)] }, now] };
     const bucket = await RateLimitBucket.findOneAndUpdate(
-  { _id: this.key(key) },
-  [ /* ...pipeline stages... */ ],
-  { upsert: true, returnDocument: "after", updatePipeline: true }, // <- add updatePipeline: true
-).lean();
+      { _id: this.key(key) },
+      [
+        {
+          $set: {
+            resetTime: {
+              $cond: [activeWindow, "$resetTime", nextReset],
+            },
+            totalHits: {
+              $cond: [
+                activeWindow,
+                { $add: [{ $ifNull: ["$totalHits", 0] }, 1] },
+                1,
+              ],
+            },
+          },
+        },
+      ],
+      { upsert: true, new: true },
+    ).lean();
 
     if (!bucket) throw new Error("Rate-limit bucket could not be updated");
     return { totalHits: bucket.totalHits, resetTime: bucket.resetTime };
