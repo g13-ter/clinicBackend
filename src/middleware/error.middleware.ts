@@ -36,16 +36,12 @@ export const errorHandler = (
   const errorId = randomUUID();
 
   if (statusCode >= 500) {
-    logger.error({
-      errorId,
-      release: process.env.RELEASE_SHA || "development",
-      method: req.method,
-      path: req.originalUrl,
-      error: err,
-    });
-  } else {
-    logger.warn(`${req.method} ${req.originalUrl} -> ${statusCode}: ${message}`);
-  }
+  const release = process.env.RELEASE_SHA || "development";
+  const detail = err instanceof Error ? (err.stack || err.message) : String(err);
+  logger.error(
+    `[${errorId}] (release ${release}) ${req.method} ${req.originalUrl} -> ${detail}`
+  );
+}
 
   res.status(statusCode).json({
     message: statusCode >= 500 ? "Something went wrong on the server" : message,
