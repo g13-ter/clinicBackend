@@ -11,6 +11,7 @@ dotenv.config();
 validateEnv();
 
 const PORT = Number(process.env.PORT) || 5000;
+const HOST = "0.0.0.0";
 let server: Server | undefined;
 let backgroundJobs: ReturnType<typeof startBackgroundJobs> | undefined;
 let shuttingDown = false;
@@ -18,8 +19,8 @@ let shuttingDown = false;
 const start = async (): Promise<void> => {
   await connectDB();
 
-  server = app.listen(PORT, () => {
-    logger.info(`Server running on port ${PORT}`);
+  server = app.listen(PORT, HOST, () => {
+    logger.info(`Server running on http://${HOST}:${PORT}`);
   });
 
   const runJobsInApi =
