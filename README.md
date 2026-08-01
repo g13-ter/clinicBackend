@@ -8,6 +8,21 @@ Built with Node.js, Express, TypeScript, and MongoDB (Mongoose).
 
 ---
 
+## Live Deployment
+
+- **Frontend (Vercel):** https://clinic-frontend-git-nursedashboard-scms2.vercel.app/login
+- **Backend (Render):** https://clinicbackend-1-slng.onrender.com
+- **Database:** MongoDB Atlas
+
+The frontend calls the backend through a Vercel rewrite (`/api/:path*` →
+the Render URL above), so from the browser's perspective all requests are
+same-origin — see `vercel.json` in the frontend repo. The backend restricts
+CORS to known frontend origins via `CLIENT_ORIGIN` (see below); this is a
+Vercel branch preview URL, so if you push a new branch you'll get a new
+preview URL that also needs to be added there before login will work from it.
+
+---
+
 ## Tech stack
 
 - **Express** — web server / routing
@@ -245,7 +260,7 @@ All validation schemas live in `src/validators/schemas.ts` — and are the same 
 
 All errors flow through one centralized handler (`src/middleware/error.middleware.ts`). Controllers throw an `AppError(message, statusCode)` and pass it to `next()`; the handler logs the error and sends back only a short, safe message to the client — never a raw stack trace. Unmatched routes return a clean JSON 404 instead of Express's default HTML error page.
 
-Logging is handled by Winston (`src/utils/logger.ts`), console-only by design: this app targets Railway, whose filesystem is ephemeral (anything written to disk disappears on every redeploy), so logs are meant to be read from Railway's own dashboard rather than from a local file. 4xx errors (validation failures, access denied, not found) log as warnings; 5xx errors (something actually broke) log with full detail.
+Logging is handled by Winston (`src/utils/logger.ts`), console-only by design: this app targets Render, whose filesystem is ephemeral (anything written to disk disappears on every redeploy), so logs are meant to be read from Render's own dashboard rather than from a local file. 4xx errors (validation failures, access denied, not found) log as warnings; 5xx errors (something actually broke) log with full detail.
 
 ---
 
@@ -316,9 +331,10 @@ Request -> server.ts (matches URL prefix)
 
 ---
 
-## Deployment notes (Railway)
+## Deployment notes (Render + Vercel)
 
-- `NODE_ENV=production` and `PORT` are set automatically by Railway - no action needed
-- Set `MONGO_URI` and `JWT_SECRET` as environment variables in Railway's dashboard (use a fresh `JWT_SECRET`, don't reuse your local dev one)
-- If using MongoDB Atlas, allow access from `0.0.0.0/0` in Atlas's Network Access settings, since Railway doesn't provide a fixed outbound IP to allowlist individually
-- CORS is currently open (`cors()` with no restrictions) since no frontend domain exists yet - lock this down to your actual frontend's URL once it's deployed
+- **Backend (Render):** set `NODE_ENV=production`, `MONGO_URI`, `JWT_SECRET`, and `CLIENT_ORIGIN` as environment variables in Render's dashboard (use a fresh `JWT_SECRET`, don't reuse your local dev one). `PORT` is set automatically by Render.
+- `CLIENT_ORIGIN` must list every frontend origin allowed to call this API, comma-separated (e.g. your production Vercel domain plus any preview-branch URLs you're actively testing). Requests from any other origin are rejected with a `403 Request origin is not allowed`.
+- If using MongoDB Atlas, allow access from `0.0.0.0/0` in Atlas's Network Access settings, since Render doesn't provide a fixed outbound IP to allowlist individually.
+- **Frontend (Vercel):** set a `vercel.json` at the project root rewriting `/api/:path*` to this backend's URL, so API calls stay same-origin from the browser and avoid CORS/cookie cross-domain issues entirely. The catch-all `/(.*)→/index.html` rewrite must come after the `/api` rule.
+- Logging is console-only (see below) — read logs from Render's own dashboard rather than a local file, since Render's filesystem is ephemeral like Railway's.
