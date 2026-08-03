@@ -117,6 +117,22 @@ describe("RBAC matrix — appointments", () => {
     expect(res.body.data.doctorId).toBe(doctorId);
     await Appointment.findByIdAndDelete(res.body.data._id);
   });
+
+  it("blocks admin from appointment reasons and patient identities", async () => {
+    const res = await request(app)
+      .get("/api/appointments")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("RBAC matrix — confidential clinic queue", () => {
+  it("blocks admin from the identifiable clinical queue", async () => {
+    const res = await request(app)
+      .get("/api/visits/queue")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(403);
+  });
 });
 
 describe("RBAC matrix — admin-only routes", () => {

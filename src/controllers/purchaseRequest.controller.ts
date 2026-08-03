@@ -5,7 +5,7 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { enqueueNotification } from "../services/notificationOutbox.service";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import type { PurchaseRequestStatus } from "../models/purchaseRequest.model";
 
 const purchaseRequestService = new PurchaseRequestService();
@@ -67,7 +67,7 @@ export const createPurchaseRequest = async (req: Request, res: Response, next: N
           )
         );
       } catch (emailError) {
-        logger.error("Failed to send purchase request notification email:", emailError);
+        logger.error("purchase_request_notification_enqueue_failed", errorMetadata(emailError));
       }
     })();
   } catch (error) {

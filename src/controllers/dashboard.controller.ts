@@ -11,6 +11,10 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
     const stats = await dashboardService.getStats(
       actor.role === "doctor" ? actor.id : undefined,
     );
+    if (actor.role === "admin") {
+      // Administrators receive operational aggregates, never identifiable case details.
+      stats.recentCases = [];
+    }
     res.status(200).json({ success: true, message: "Dashboard stats retrieved successfully", data: stats });
   } catch (error) {
     next(error);

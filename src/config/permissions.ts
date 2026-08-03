@@ -15,7 +15,7 @@ export const PERMISSIONS = {
   },
   appointments: {
     create: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
-    list: ["staff", "nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
+    list: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     viewById: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     update: ["staff", "nurse"] as const satisfies readonly UserRole[],
   },
@@ -35,7 +35,7 @@ export const PERMISSIONS = {
   },
   visits: {
     create: ["staff", "nurse"] as const satisfies readonly UserRole[],
-    list: ["staff", "doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
+    list: ["staff", "doctor", "nurse"] as const satisfies readonly UserRole[],
     todayCount: ["doctor", "nurse", "admin"] as const satisfies readonly UserRole[],
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["nurse", "doctor"] as const satisfies readonly UserRole[],

@@ -49,11 +49,11 @@ router.post(
 );
 
 
-// Staff, Nurse, Doctor, Admin - view all appointments
+// Staff, nurse, and doctor - view appointments containing clinical reasons
 router.get(
   "/",
   protect,
-  allowRoles("staff", "nurse", "doctor", "admin"),
+  allowRoles("staff", "nurse", "doctor"),
   getAppointments
 );
 

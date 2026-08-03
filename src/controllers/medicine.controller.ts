@@ -5,7 +5,7 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { enqueueNotification } from "../services/notificationOutbox.service";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import StockMovement from "../models/stockMovement.model";
 
 const medicineService = new MedicineService();
@@ -148,7 +148,7 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
             )
           );
         } catch (emailError) {
-          logger.error("Failed to send low stock alert email:", emailError);
+          logger.error("low_stock_alert_enqueue_failed", errorMetadata(emailError));
         }
       })();
     }

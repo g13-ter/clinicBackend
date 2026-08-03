@@ -1,6 +1,6 @@
 import NotificationOutbox, { type NotificationKind } from "../models/notificationOutbox.model";
 import { mailer } from "./mailer.service";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import Appointment from "../models/appointment.model";
 import type { ClientSession } from "mongoose";
 
@@ -184,7 +184,10 @@ export async function processNotificationOutbox(limit = 100): Promise<{ processe
         },
       );
       result.failed += 1;
-      logger.error(`Notification delivery failed for ${item._id}:`, error);
+      logger.error("notification_delivery_failed", {
+        notificationId: String(item._id),
+        ...errorMetadata(error),
+      });
     }
   }
   return result;

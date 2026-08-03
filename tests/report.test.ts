@@ -205,14 +205,27 @@ describe("CSV report exports", () => {
     ["medication-consumption", "Quantity Dispensed"],
     ["medication-usage-details", "Recorded / Dispensed By"],
   ])("exports the %s report", async (reportType, expectedHeader) => {
+    const token = reportType === "medication-usage-details" ? nurseToken : adminToken;
     const res = await request(app)
       .get(`/api/reports/export/${reportType}`)
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
     expect(res.text).toContain(expectedHeader);
   });
+
+  it.each(["medication-usage-details", "vaccination-status"])(
+    "blocks admin from the identifiable %s report",
+    async (reportType) => {
+      const res = await request(app)
+        .get(`/api/reports/export/${reportType}`)
+        .set("Authorization", `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.message).toMatch(/confidential student health information/i);
+    },
+  );
 
   it("exports the medication inventory columns requested by the clinic", async () => {
     const res = await request(app)
@@ -266,5 +279,17 @@ describe("Annual medication report", () => {
     expect(res.text).toContain(">July</th>");
     expect(res.text).toContain("Total Stocks");
     expect(res.text).toContain("Total Remaining");
+  });
+});
+
+describe("Admin dashboard privacy", () => {
+  it("returns aggregate dashboard data without identifiable recent cases", async () => {
+    const res = await request(app)
+      .get("/api/dashboard/stats")
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.todayVisits).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.recentCases).toEqual([]);
   });
 });

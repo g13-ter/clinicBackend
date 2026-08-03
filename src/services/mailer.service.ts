@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 
 // Log emails instead of sending when RESEND_API_KEY is unset.
 
@@ -35,7 +35,7 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolea
     : html;
 
   if (!resendApiKey) {
-    logger.error("[mailer] RESEND_API_KEY not found.");
+    logger.error("mailer_configuration_missing", { provider: "resend" });
     return false;
   }
 
@@ -50,18 +50,17 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolea
     });
 
     if (error) {
-      logger.error("[mailer] Resend error:", error);
+      logger.error("mailer_provider_error", { provider: "resend", ...errorMetadata(error) });
       return false;
     }
 
-    logger.info(
-      redirectForDevelopment
-        ? `[mailer] Development email for ${to} redirected to ${deliveryRecipient}`
-        : `[mailer] Email sent successfully to ${to}`,
-    );
+    logger.info("mailer_delivery_succeeded", {
+      provider: "resend",
+      redirectedForDevelopment: redirectForDevelopment,
+    });
     return true;
   } catch (error) {
-    logger.error("[mailer] Failed to send email:", error);
+    logger.error("mailer_delivery_failed", { provider: "resend", ...errorMetadata(error) });
     return false;
   }
 };

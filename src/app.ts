@@ -21,10 +21,14 @@ import internalRoutes from "./routes/internal.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import systemSettingsRoutes from "./routes/systemSettings.routes";
 import notificationRoutes from "./routes/notification.routes";
+import { requestLogger } from "./middleware/requestLogger.middleware";
 
 // Builds the app without opening a port so tests can import it safely.
 
 const app: Application = express();
+
+// Assign correlation IDs before any middleware can reject the request.
+app.use(requestLogger);
 
 // Trust the reverse proxy's client IP for rate limits and logs.
 if (process.env.NODE_ENV === "production") {
@@ -69,6 +73,7 @@ app.use(cors({
     }
   },
   credentials: true,
+  exposedHeaders: ["X-Request-ID"],
 }));
 app.use(express.json());
 

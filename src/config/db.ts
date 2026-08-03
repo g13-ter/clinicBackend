@@ -26,7 +26,7 @@ const connectDB = async (): Promise<void> => {
     }
   }
 
-  logger.info("MongoDB connected");
+  logger.info("mongodb_connected");
 };
 
 export default connectDB;

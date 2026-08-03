@@ -227,6 +227,41 @@ describe("Patients - View permissions differ by role", () => {
 
   });
 
+  it("ADMIN receives demographics without confidential medical information", async () => {
+    await Patient.findByIdAndUpdate(createdPatientId, {
+      bloodType: "O+",
+      healthConditions: "Confidential condition",
+      medicalAlerts: {
+        allergies: ["Confidential allergy"],
+        chronicConditions: ["Confidential chronic condition"],
+        currentMedications: ["Confidential medication"],
+        notes: "Confidential medical note",
+      },
+      consents: {
+        treatment: true,
+        medicineAdministration: true,
+        dataPrivacy: true,
+      },
+    });
+
+    const res = await request(app)
+      .get(`/api/patients?search=${encodeURIComponent(createdStudentId)}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    const found = res.body.data.find((patient: any) => patient._id === createdPatientId);
+    expect(found).toBeDefined();
+    expect(found.studentId).toBe(createdStudentId);
+    expect(found).not.toHaveProperty("address");
+    expect(found).not.toHaveProperty("dateOfBirth");
+    expect(found).not.toHaveProperty("guardianName");
+    expect(found).not.toHaveProperty("guardianContactNumber");
+    expect(found).not.toHaveProperty("bloodType");
+    expect(found).not.toHaveProperty("healthConditions");
+    expect(found).not.toHaveProperty("medicalAlerts");
+    expect(found).not.toHaveProperty("consents");
+  });
+
 });
 
 

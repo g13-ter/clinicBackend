@@ -30,12 +30,12 @@ router.get(
 );
 
 
-// Staff, nurse, doctor and admin - clinic-wide queue.
+// Staff, nurse, and doctor - clinic-wide queue containing clinical details.
 // Must come before "/:id" so "queue" isn't swallowed as an :id param.
 router.get(
   "/queue",
   protect,
-  allowRoles("staff", "nurse", "doctor", "admin"),
+  allowRoles("staff", "nurse", "doctor"),
   getQueue
 );
 

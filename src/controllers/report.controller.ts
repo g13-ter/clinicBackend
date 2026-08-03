@@ -3,6 +3,7 @@ import { ReportService } from "../services/report.service";
 import { buildReportDocx } from "../utils/reportDocx";
 import { buildAnnualMedicationXls } from "../utils/annualMedicationXls";
 import { AppError } from "../middleware/error.middleware";
+import { getAuthenticatedUser } from "../utils/authUser";
 
 const reportService = new ReportService();
 
@@ -33,6 +34,19 @@ const exportTypes: readonly ExportType[] = [
   "inventory-expiry",
   "disease-trends",
   "vaccination-status",
+];
+
+const ADMIN_SAFE_EXPORT_TYPES: readonly ExportType[] = [
+  "inventory-current",
+  "inventory-movements",
+  "inventory-batches",
+  "inventory-reorder",
+  "medication-consumption",
+  "medication-inventory",
+  "inventory-stock",
+  "inventory-usage",
+  "inventory-expiry",
+  "disease-trends",
 ];
 
 const getDefaultMonthRange = (): { startDate: Date; endDate: Date } => {
@@ -144,6 +158,15 @@ export const exportReportCsv = async (
     const type = req.params.type as ExportType;
     if (!exportTypes.includes(type)) {
       throw new AppError("Unsupported report type", 400);
+    }
+    if (
+      getAuthenticatedUser(req).role === "admin" &&
+      !ADMIN_SAFE_EXPORT_TYPES.includes(type)
+    ) {
+      throw new AppError(
+        "This report contains confidential student health information and requires a clinical role",
+        403,
+      );
     }
 
     const { startDate, endDate } = getReportRange(

@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import { randomUUID } from "node:crypto";
 
 
@@ -33,15 +33,19 @@ export const errorHandler = (
     typeof errorDetails.message === "string"
       ? errorDetails.message
       : "Something went wrong on the server";
-  const errorId = randomUUID();
+  const errorId = req.requestId || randomUUID();
 
   if (statusCode >= 500) {
-  const release = process.env.RELEASE_SHA || "development";
-  const detail = err instanceof Error ? (err.stack || err.message) : String(err);
-  logger.error(
-    `[${errorId}] (release ${release}) ${req.method} ${req.originalUrl} -> ${detail}`
-  );
-}
+    logger.error("request_failed", {
+      errorId,
+      requestId: req.requestId,
+      method: req.method,
+      path: req.path,
+      statusCode,
+      ...(req.user ? { userId: req.user.id, role: req.user.role } : {}),
+      ...errorMetadata(err),
+    });
+  }
 
   res.status(statusCode).json({
     message: statusCode >= 500 ? "Something went wrong on the server" : message,

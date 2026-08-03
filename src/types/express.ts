@@ -5,6 +5,8 @@ declare global {
     interface Request {
       /** Set by `protect` after JWT verification. */
       user?: AuthUser;
+      /** Correlates the HTTP response with structured server logs. */
+      requestId?: string;
     }
   }
 }

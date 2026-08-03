@@ -6,7 +6,7 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { enqueueNotification } from "../services/notificationOutbox.service";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import { AppError } from "../middleware/error.middleware";
 import { buildMedicalCertificateDocx } from "../utils/medicalCertificateDocx";
 
@@ -88,7 +88,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
             )
           );
         } catch (emailError) {
-          logger.error("Failed to send low stock alert email after prescription:", emailError);
+          logger.error("prescription_low_stock_alert_enqueue_failed", errorMetadata(emailError));
         }
       })();
     }

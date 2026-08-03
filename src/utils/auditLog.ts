@@ -1,6 +1,6 @@
 import AuditLog, { AuditAction } from "../models/auditLog.model";
 import User from "../models/user.model";
-import logger from "./logger";
+import logger, { errorMetadata } from "./logger";
 
 interface LogAuditParams {
   action: AuditAction;
@@ -50,9 +50,11 @@ export const logAudit = async (params: LogAuditParams): Promise<void> => {
       metadata,
     });
   } catch (error) {
-    logger.error(
-      `Failed to write audit log (${params.action} ${params.resource} ${params.resourceId}):`,
-      error
-    );
+    logger.error("audit_log_write_failed", {
+      action: params.action,
+      resource: params.resource,
+      resourceId: params.resourceId,
+      ...errorMetadata(error),
+    });
   }
 };

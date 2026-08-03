@@ -1,6 +1,6 @@
 import Appointment from "../models/appointment.model";
 import SystemSettings from "../models/systemSettings.model";
-import logger from "../utils/logger";
+import logger, { errorMetadata } from "../utils/logger";
 import { enqueueNotification } from "./notificationOutbox.service";
 
 const REMINDER_HOURS_BEFORE = 3;
@@ -89,9 +89,15 @@ export const sendDueReminders = async (): Promise<ReminderSweepResult> => {
         { _id: appointment._id, reminderClaimedAt: now },
         { $unset: { reminderClaimedAt: 1 } },
       ).catch((releaseError) => {
-        logger.error(`Failed to release reminder claim for appointment ${appointment._id}:`, releaseError);
+        logger.error("reminder_claim_release_failed", {
+          appointmentId: String(appointment._id),
+          ...errorMetadata(releaseError),
+        });
       });
-      logger.error(`Failed to send reminder for appointment ${appointment._id}:`, error);
+      logger.error("appointment_reminder_failed", {
+        appointmentId: String(appointment._id),
+        ...errorMetadata(error),
+      });
     }
   }
 

@@ -30,7 +30,7 @@ const staffPatientPayload = (body: Record<string, unknown>): Record<string, unkn
       .map((field) => [field, body[field]]),
   );
 
-const toStaffPatient = (patient: IPatient) => {
+const toDemographicPatient = (patient: IPatient) => {
   const source = patient.toObject();
   const {
     _id, studentId, firstName, lastName, age, gender, course, yearLevel,
@@ -38,6 +38,15 @@ const toStaffPatient = (patient: IPatient) => {
     guardianContactNumber, isActive,
   } = source;
   return { _id, studentId, firstName, lastName, age, gender, course, yearLevel, contactNumber, email, address, dateOfBirth, guardianName, guardianContactNumber, isActive };
+};
+
+const toAdminPatient = (patient: IPatient) => {
+  const source = patient.toObject();
+  const {
+    _id, studentId, firstName, lastName, gender, course, yearLevel,
+    contactNumber, isActive,
+  } = source;
+  return { _id, studentId, firstName, lastName, gender, course, yearLevel, contactNumber, isActive };
 };
 
 // CREATE
@@ -76,11 +85,15 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 
     const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
 
-    const isStaff = getAuthenticatedUser(req).role === "staff";
+    const role = getAuthenticatedUser(req).role;
     res.status(200).json({
       success: true,
       message: "Students retrieved successfully",
-      data: isStaff ? patients.map(toStaffPatient) : patients,
+      data: role === "admin"
+        ? patients.map(toAdminPatient)
+        : role === "staff"
+          ? patients.map(toDemographicPatient)
+          : patients,
       pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
     });
   } catch (error) {
@@ -106,7 +119,7 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
     const patient = await patientService.getPatientById(id);
 
     const isStaff = getAuthenticatedUser(req).role === "staff";
-    res.status(200).json({ success: true, message: "Student retrieved successfully", data: isStaff ? toStaffPatient(patient) : patient });
+    res.status(200).json({ success: true, message: "Student retrieved successfully", data: isStaff ? toDemographicPatient(patient) : patient });
   } catch (error) {
     next(error);
   }

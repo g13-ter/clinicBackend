@@ -4,7 +4,7 @@ import type { Server } from "node:http";
 import connectDB from "./config/db";
 import app from "./app";
 import { validateEnv } from "./utils/validateEnv";
-import logger from "./utils/logger";
+import logger, { errorMetadata } from "./utils/logger";
 import { startBackgroundJobs } from "./jobs/backgroundJobs";
 
 dotenv.config();
@@ -20,7 +20,7 @@ const start = async (): Promise<void> => {
   await connectDB();
 
   server = app.listen(PORT, HOST, () => {
-    logger.info(`Server running on http://${HOST}:${PORT}`);
+    logger.info("server_started", { host: HOST, port: PORT });
   });
 
   const runJobsInApi =
@@ -32,11 +32,11 @@ const start = async (): Promise<void> => {
 const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
   if (shuttingDown) return;
   shuttingDown = true;
-  logger.info(`${signal} received - draining server`);
+  logger.info("server_shutdown_started", { signal });
   backgroundJobs?.stop();
 
   const forcedExit = setTimeout(() => {
-    logger.error("Graceful shutdown timed out");
+    logger.error("server_shutdown_timed_out");
     process.exit(1);
   }, 10_000);
   forcedExit.unref();
@@ -49,10 +49,10 @@ const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
     }
     await mongoose.connection.close();
     clearTimeout(forcedExit);
-    logger.info("Server shutdown complete");
+    logger.info("server_shutdown_completed");
     process.exit(exitCode);
   } catch (error) {
-    logger.error("Graceful shutdown failed:", error);
+    logger.error("server_shutdown_failed", errorMetadata(error));
     process.exit(1);
   }
 };
@@ -60,15 +60,15 @@ const shutdown = async (signal: string, exitCode = 0): Promise<void> => {
 process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 process.on("unhandledRejection", (reason) => {
-  logger.error("Unhandled promise rejection:", reason);
+  logger.error("unhandled_promise_rejection", errorMetadata(reason));
   void shutdown("unhandledRejection", 1);
 });
 process.on("uncaughtException", (error) => {
-  logger.error("Uncaught exception:", error);
+  logger.error("uncaught_exception", errorMetadata(error));
   void shutdown("uncaughtException", 1);
 });
 
 void start().catch((error) => {
-  logger.error("Server startup failed:", error);
+  logger.error("server_startup_failed", errorMetadata(error));
   void shutdown("startupFailure", 1);
 });
