@@ -10,7 +10,7 @@ Built with Node.js, Express, TypeScript, and MongoDB (Mongoose).
 
 ## Live Deployment
 
-- **Frontend (Vercel):** https://clinic-frontend-git-nursedashboard-scms2.vercel.app/login
+- **Frontend (Vercel):** https://clinic-frontend-zx67-git-nursedashboard-scms2.vercel.app/
 - **Backend (Render):** https://clinicbackend-1-slng.onrender.com
 - **Database:** MongoDB Atlas
 
