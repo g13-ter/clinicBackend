@@ -227,6 +227,34 @@ describe("Patients - View permissions differ by role", () => {
 
   });
 
+  it("calculates age from date of birth instead of trusting submitted age", async () => {
+    const today = new Date();
+    const birthDate = new Date(Date.UTC(
+      today.getUTCFullYear() - 18,
+      today.getUTCMonth(),
+      today.getUTCDate(),
+    ));
+    const res = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        studentId: `TEST-DOB-${Date.now()}`,
+        firstName: "TEST",
+        lastName: "CalculatedAge",
+        age: 99,
+        dateOfBirth: birthDate.toISOString().slice(0, 10),
+        gender: "Female",
+        course: "BSIT",
+        yearLevel: 1,
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.age).toBe(18);
+    staffCreatedPatientIds.push(res.body.data._id);
+  });
+
   it("ADMIN receives demographics without confidential medical information", async () => {
     await Patient.findByIdAndUpdate(createdPatientId, {
       bloodType: "O+",
@@ -262,6 +290,73 @@ describe("Patients - View permissions differ by role", () => {
     expect(found).not.toHaveProperty("consents");
   });
 
+});
+
+describe("Patients - reusable clinical profile workflow", () => {
+  const nurseProfile = {
+    familyHistory: "Mother has diabetes; father has hypertension",
+    pastMedicalHistory: "Hospitalized for dengue in 2022",
+    allergies: ["Penicillin", "Peanuts"],
+    currentMedications: ["Cetirizine as needed"],
+    chronicConditions: ["Asthma"],
+    notes: "Interviewed during triage",
+  };
+
+  it("allows a nurse to record the clinical profile for doctor review", async () => {
+    const res = await request(app)
+      .put(`/api/patients/${createdPatientId}/clinical-profile`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send(nurseProfile);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.familyHistory).toBe(nurseProfile.familyHistory);
+    expect(res.body.data.pastMedicalHistory).toBe(nurseProfile.pastMedicalHistory);
+    expect(res.body.data.medicalAlerts.allergies).toEqual(nurseProfile.allergies);
+    expect(res.body.data.clinicalProfileVerifiedAt).toBeUndefined();
+  });
+
+  it("allows a doctor to correct and verify the nurse-entered profile", async () => {
+    const res = await request(app)
+      .put(`/api/patients/${createdPatientId}/clinical-profile`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({
+        ...nurseProfile,
+        pastMedicalHistory: "Hospitalized for dengue in 2021",
+        verified: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.pastMedicalHistory).toContain("2021");
+    expect(res.body.data.clinicalProfileVerifiedAt).toBeTruthy();
+    expect(res.body.data.clinicalProfileVerifiedBy._id).toBe(doctorId);
+  });
+
+  it("returns the profile to review after a nurse changes it", async () => {
+    const res = await request(app)
+      .put(`/api/patients/${createdPatientId}/clinical-profile`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ ...nurseProfile, currentMedications: ["Salbutamol inhaler"] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.clinicalProfileVerifiedAt).toBeUndefined();
+    expect(res.body.data.clinicalProfileVerifiedBy).toBeUndefined();
+  });
+
+  it("blocks staff from viewing or changing clinical-profile fields", async () => {
+    const update = await request(app)
+      .put(`/api/patients/${createdPatientId}/clinical-profile`)
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send(nurseProfile);
+    const view = await request(app)
+      .get(`/api/patients/${createdPatientId}`)
+      .set("Authorization", `Bearer ${staffToken}`);
+
+    expect(update.status).toBe(403);
+    expect(view.status).toBe(200);
+    expect(view.body.data).not.toHaveProperty("familyHistory");
+    expect(view.body.data).not.toHaveProperty("pastMedicalHistory");
+    expect(view.body.data).not.toHaveProperty("medicalAlerts");
+  });
 });
 
 

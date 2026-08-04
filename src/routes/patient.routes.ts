@@ -8,6 +8,7 @@ import {
   updatePatient,
   archivePatient,
   advanceStudentSchoolYear,
+  updateClinicalProfile,
 } from "../controllers/patient.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -17,6 +18,7 @@ import {
   advanceSchoolYearSchema,
   createPatientSchema,
   updatePatientSchema,
+  updateClinicalProfileSchema,
 } from "../validators/schemas";
 
 const router = express.Router();
@@ -68,6 +70,14 @@ router.get(
 
 
 // Student staff and nurse - update demographic/contact information only
+router.put(
+  "/:id/clinical-profile",
+  protect,
+  allowRoles("nurse", "doctor"),
+  validateBody(updateClinicalProfileSchema),
+  updateClinicalProfile,
+);
+
 router.put(
   "/:id",
   protect,

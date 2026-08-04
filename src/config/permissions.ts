@@ -12,12 +12,14 @@ export const PERMISSIONS = {
     viewById: ["staff", "doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["staff", "nurse"] as const satisfies readonly UserRole[],
     archive: ["admin"] as const satisfies readonly UserRole[],
+    updateClinicalProfile: ["doctor", "nurse"] as const satisfies readonly UserRole[],
   },
   appointments: {
     create: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     list: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     viewById: ["staff", "nurse", "doctor"] as const satisfies readonly UserRole[],
     update: ["staff", "nurse"] as const satisfies readonly UserRole[],
+    assignDoctor: ["nurse"] as const satisfies readonly UserRole[],
   },
   medicines: {
     create: ["nurse"] as const satisfies readonly UserRole[],

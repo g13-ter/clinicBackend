@@ -73,26 +73,41 @@ afterAll(async () => {
 });
 
 
-describe("Appointments - Create (staff, nurse, and doctor)", () => {
+describe("Appointments - nurse assignment and doctor approval", () => {
 
-  it("allows STAFF to book an appointment, defaulting to pending status", async () => {
+  it("allows STAFF to submit an unassigned appointment request", async () => {
 
     const res = await request(app)
       .post("/api/appointments")
       .set("Authorization", `Bearer ${staffToken}`)
       .send({
         patientId: testPatientId,
-        doctorId,
         appointmentDate: "2026-07-01T09:00:00.000Z",
         reason: "Follow-up checkup",
         notes: "Requested by parent"
       });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.status).toBe("pending");
+    expect(res.body.data.status).toBe("unassigned");
+    expect(res.body.data.doctorId).toBeUndefined();
 
     createdAppointmentId = res.body.data._id;
 
+  });
+
+  it("blocks STAFF from assigning a doctor", async () => {
+    const res = await request(app)
+      .post("/api/appointments")
+      .set("Authorization", `Bearer ${staffToken}`)
+      .send({
+        patientId: testPatientId,
+        doctorId,
+        appointmentDate: "2026-07-01T10:00:00.000Z",
+        reason: "Staff assignment attempt",
+      });
+
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/only a nurse can assign/i);
   });
 
 
@@ -118,7 +133,7 @@ describe("Appointments - Create (staff, nurse, and doctor)", () => {
 
     const res = await request(app)
       .post("/api/appointments")
-      .set("Authorization", `Bearer ${staffToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .send({
         patientId: testPatientId,
         doctorId,
@@ -138,14 +153,14 @@ describe("Appointments - Shared view access", () => {
   it("rejects overlapping appointments for the same doctor", async () => {
     const first = await request(app)
       .post("/api/appointments")
-      .set("Authorization", `Bearer ${staffToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .send({ patientId: testPatientId, doctorId, appointmentDate: "2026-08-15T09:00:00.000Z", durationMinutes: 60, reason: "First slot" });
     expect(first.status).toBe(201);
     appointmentIds.push(first.body.data._id);
 
     const overlap = await request(app)
       .post("/api/appointments")
-      .set("Authorization", `Bearer ${staffToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .send({ patientId: testPatientId, doctorId, appointmentDate: "2026-08-15T09:30:00.000Z", durationMinutes: 30, reason: "Overlapping slot" });
     expect(overlap.status).toBe(409);
   });
@@ -189,6 +204,15 @@ describe("Appointments - Shared view access", () => {
 
   });
 
+  it("searches appointments by student ID", async () => {
+    const res = await request(app)
+      .get("/api/appointments?search=TEST-APPT-")
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((item: { patientId?: { _id?: string } }) => item.patientId?._id === testPatientId)).toBe(true);
+  });
+
 });
 
 
@@ -227,12 +251,43 @@ describe("Appointments - Status updates (staff and nurse, no real delete)", () =
     const res = await request(app)
       .put(`/api/appointments/${createdAppointmentId}`)
       .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ appointmentDate: "2026-07-10T14:00:00.000Z" });
+      .send({ doctorId, appointmentDate: "2026-07-10T14:00:00.000Z" });
 
     expect(res.status).toBe(200);
     expect(res.body.data.status).toBe("pending");
     expect(new Date(res.body.data.appointmentDate).toISOString()).toBe("2026-07-10T14:00:00.000Z");
 
+  });
+
+  it("lets the assigned doctor decline and returns it for nurse reassignment", async () => {
+    const appointment = await Appointment.create({
+      patientId: testPatientId,
+      doctorId,
+      appointmentDate: new Date("2026-10-10T09:00:00.000Z"),
+      reason: "TEST decline flow",
+      status: "pending",
+      createdBy: nurseId,
+    });
+    appointmentIds.push(String(appointment._id));
+
+    const declined = await request(app)
+      .put(`/api/appointments/${appointment._id}/decline`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ reason: "Unavailable at this time" });
+
+    expect(declined.status).toBe(200);
+    expect(declined.body.data.status).toBe("needs_reassignment");
+    expect(declined.body.data.declineReason).toBe("Unavailable at this time");
+    expect(declined.body.data.doctorId).toBeUndefined();
+
+    const reassigned = await request(app)
+      .put(`/api/appointments/${appointment._id}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ doctorId });
+
+    expect(reassigned.status).toBe(200);
+    expect(reassigned.body.data.status).toBe("pending");
+    expect(reassigned.body.data.declineReason).toBeUndefined();
   });
 
 });

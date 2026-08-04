@@ -20,7 +20,7 @@ const ALLOWED_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
 interface PatientVisitFilter {
   patientId: string;
   isActive: true;
-  complaint?: { $regex: string; $options: "i" };
+  $or?: Array<Record<string, unknown>>;
 }
 
 export class ClinicVisitService {
@@ -42,8 +42,17 @@ export class ClinicVisitService {
       isActive: true,
     };
 
-    if (search) {
-      filter.complaint = { $regex: escapeRegex(search), $options: "i" };
+    if (search?.trim()) {
+      const safeSearch = escapeRegex(search.trim());
+      filter.$or = [
+        { complaint: { $regex: safeSearch, $options: "i" } },
+        { treatment: { $regex: safeSearch, $options: "i" } },
+        { notes: { $regex: safeSearch, $options: "i" } },
+        { nursingAssessment: { $regex: safeSearch, $options: "i" } },
+        { nursingInterventions: { $regex: safeSearch, $options: "i" } },
+        { nursingRecommendations: { $regex: safeSearch, $options: "i" } },
+        { status: { $regex: safeSearch, $options: "i" } },
+      ];
     }
 
     const [visits, total] = await Promise.all([

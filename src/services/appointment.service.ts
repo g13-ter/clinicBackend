@@ -6,6 +6,8 @@ import type { UserRole } from "../types/roles";
 import ClinicVisit, { IClinicVisit } from "../models/clinicVisit.model";
 import { Types, type ClientSession } from "mongoose";
 import { clinicDayRange } from "../utils/clinicTime";
+import Patient from "../models/patient.model";
+import User from "../models/user.model";
 
 const isDuplicateKeyError = (error: unknown): error is { code: number } =>
   typeof error === "object" &&
@@ -14,9 +16,9 @@ const isDuplicateKeyError = (error: unknown): error is { code: number } =>
   error.code === 11000;
 
 interface AppointmentListFilter {
-  reason?: { $regex: string; $options: "i" };
   appointmentDate?: { $gte: Date; $lt: Date };
   doctorId?: string | { $exists: false };
+  $or?: Array<Record<string, unknown>>;
 }
 
 export class AppointmentService {
@@ -33,8 +35,24 @@ export class AppointmentService {
   ): Promise<{ appointments: IAppointment[]; total: number }> {
     const filter: AppointmentListFilter = {};
 
-    if (search) {
-      filter.reason = { $regex: escapeRegex(search), $options: "i" };
+    if (search?.trim()) {
+      const safeSearch = escapeRegex(search.trim());
+      const [patients, doctors] = await Promise.all([
+        Patient.find({
+          $or: [
+            { firstName: { $regex: safeSearch, $options: "i" } },
+            { lastName: { $regex: safeSearch, $options: "i" } },
+            { studentId: { $regex: safeSearch, $options: "i" } },
+          ],
+        }).select("_id"),
+        User.find({ role: "doctor", name: { $regex: safeSearch, $options: "i" } }).select("_id"),
+      ]);
+      filter.$or = [
+        { reason: { $regex: safeSearch, $options: "i" } },
+        { status: { $regex: safeSearch, $options: "i" } },
+        { patientId: { $in: patients.map((patient) => patient._id) } },
+        { doctorId: { $in: doctors.map((doctor) => doctor._id) } },
+      ];
     }
 
     // Restrict results to one local calendar day.
@@ -99,8 +117,10 @@ export class AppointmentService {
     if (reminderDetailsChanged) {
       data.reminderSent = false;
       if (data.status !== "cancelled") {
-        // A changed doctor or schedule must be confirmed again.
-        data.status = "pending";
+        // Assigned appointments require fresh doctor confirmation. Unassigned
+        // requests stay in the nurse's assignment queue.
+        const resultingDoctor = data.doctorId === undefined ? before.doctorId : data.doctorId;
+        data.status = resultingDoctor ? "pending" : "unassigned";
       }
     }
 
@@ -113,7 +133,7 @@ export class AppointmentService {
       session,
     );
 
-    const after = await Appointment.findByIdAndUpdate(id, data, {
+    let after = await Appointment.findByIdAndUpdate(id, data, {
       returnDocument: "after",
       runValidators: true,
       ...(session ? { session } : {}),
@@ -126,9 +146,10 @@ export class AppointmentService {
     if (reminderDetailsChanged) {
       await Appointment.updateOne(
         { _id: id },
-        { $unset: { reminderClaimedAt: 1 } },
+        { $unset: { reminderClaimedAt: 1, declineReason: 1 } },
         session ? { session } : undefined,
       );
+      after = (await Appointment.findById(id).session(session ?? null)) ?? after;
     }
 
     return { before, after };
@@ -189,6 +210,35 @@ export class AppointmentService {
     return { before, after };
   }
 
+  async declineAppointment(
+    id: string,
+    doctorId: string,
+    reason: string,
+  ): Promise<{ before: IAppointment; after: IAppointment }> {
+    const before = await Appointment.findById(id);
+    if (!before) throw new AppError("Appointment not found", 404);
+    if (!before.doctorId || String(before.doctorId) !== doctorId) {
+      throw new AppError("You can only decline appointments assigned to you", 403);
+    }
+    if (before.status !== "pending") {
+      throw new AppError("Only pending appointments can be declined", 409);
+    }
+
+    const after = await Appointment.findByIdAndUpdate(
+      id,
+      {
+        status: "needs_reassignment",
+        declineReason: reason,
+        $unset: { doctorId: 1, reminderClaimedAt: 1 },
+        reminderSent: false,
+        updatedBy: doctorId,
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Appointment not found", 404);
+    return { before, after };
+  }
+
   async checkInAppointment(
     id: string,
     userId: string,
@@ -196,8 +246,8 @@ export class AppointmentService {
   ): Promise<{ appointment: IAppointment; visit: IClinicVisit; created: boolean }> {
     const appointment = await Appointment.findById(id);
     if (!appointment) throw new AppError("Appointment not found", 404);
-    if (appointment.status === "cancelled" || appointment.status === "completed") {
-      throw new AppError("Only active appointments can be checked in", 409);
+    if (appointment.status !== "confirmed" && appointment.status !== "checked_in") {
+      throw new AppError("Only confirmed appointments can be checked in", 409);
     }
     if (
       role === "doctor" &&

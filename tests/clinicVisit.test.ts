@@ -164,6 +164,20 @@ describe("Clinic Visits - View permissions", () => {
 
   });
 
+  it("searches a student's visit records by clinical details", async () => {
+    const matching = await request(app)
+      .get(`/api/visits/patient/${testPatientId}?search=headache`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+    const missing = await request(app)
+      .get(`/api/visits/patient/${testPatientId}?search=not-in-any-test-visit`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(matching.status).toBe(200);
+    expect(matching.body.data.some((visit: { _id: string }) => visit._id === createdVisitId)).toBe(true);
+    expect(missing.status).toBe(200);
+    expect(missing.body.data).toHaveLength(0);
+  });
+
   it("shows a visit in the doctor queue only after the nurse marks it ready", async () => {
     const before = await request(app)
       .get("/api/visits/queue")

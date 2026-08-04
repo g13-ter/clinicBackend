@@ -71,22 +71,30 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
     if (!patient.isActive) {
       throw new AppError("Appointments can only be scheduled for active students", 409);
     }
+    if (actor.role === "staff" && doctorId) {
+      throw new AppError("Only a nurse can assign a doctor to an appointment", 403);
+    }
     const assignedDoctorId = actor.role === "doctor" ? actor.id : doctorId;
-    if (!assignedDoctorId) {
+    if (actor.role === "nurse" && !assignedDoctorId) {
       throw new AppError("Please select a doctor for the appointment", 400);
     }
-    const assignedDoctor = await userService.getUserById(assignedDoctorId);
-    if (assignedDoctor.role !== "doctor") {
-      throw new AppError("The selected user is not a doctor", 400);
-    }
-    if (actor.role !== "doctor" && assignedDoctor.isAvailable === false) {
-      throw new AppError("The selected doctor is currently unavailable", 409);
+    let assignedDoctorName: string | undefined;
+    if (assignedDoctorId) {
+      const assignedDoctor = await userService.getUserById(assignedDoctorId);
+      if (assignedDoctor.role !== "doctor") {
+        throw new AppError("The selected user is not a doctor", 400);
+      }
+      if (actor.role !== "doctor" && assignedDoctor.isAvailable === false) {
+        throw new AppError("The selected doctor is currently unavailable", 409);
+      }
+      assignedDoctorName = assignedDoctor.name;
     }
 
     const appointment = await withMongoTransaction(async (session) => {
       const created = await appointmentService.createAppointment({
         patientId,
-        doctorId: assignedDoctorId,
+        ...(assignedDoctorId ? { doctorId: assignedDoctorId } : {}),
+        status: assignedDoctorId ? "pending" : "unassigned",
         appointmentDate,
         reason,
         notes,
@@ -116,9 +124,11 @@ export const createAppointment = async (req: Request, res: Response, next: NextF
 
     res.status(201).json({
       success: true,
-      message: actor.role === "doctor"
+      message: actor.role === "staff"
+        ? "Appointment request saved for nurse assignment"
+        : actor.role === "doctor"
         ? "Appointment scheduled successfully"
-        : `Appointment sent to ${assignedDoctor.name} for confirmation`,
+        : `Appointment sent to ${assignedDoctorName} for confirmation`,
       data: appointment,
     });
   } catch (error) {
@@ -171,7 +181,11 @@ export const getAppointmentById = async (req: Request, res: Response, next: Next
 export const updateAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const userId = getAuthenticatedUser(req).id;
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
+    if (actor.role !== "nurse" && req.body.doctorId) {
+      throw new AppError("Only a nurse can assign or reassign a doctor", 403);
+    }
     if (req.body.doctorId) {
       const assignedDoctor = await userService.getUserById(req.body.doctorId);
       if (assignedDoctor.role !== "doctor") {
@@ -291,6 +305,37 @@ export const confirmAppointment = async (req: Request, res: Response, next: Next
     res.status(200).json({
       success: true,
       message: "Appointment confirmed. It is ready for check-in.",
+      data: after,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const declineAppointment = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await appointmentService.declineAppointment(
+      id,
+      actor.id,
+      req.body.reason,
+    );
+
+    logAudit({
+      action: "update",
+      resource: "Appointment",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Appointment returned to the nurse for reassignment",
       data: after,
     });
   } catch (error) {

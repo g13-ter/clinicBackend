@@ -6,7 +6,8 @@ export interface IAppointment extends Document {
   appointmentDate: Date;
   reason: string;
   cancellationReason?: string;
-  status: string;
+  declineReason?: string;
+  status: "unassigned" | "pending" | "confirmed" | "needs_reassignment" | "checked_in" | "cancelled" | "completed";
   notes: string;
   reminderSent: boolean;
   reminderClaimedAt?: Date;
@@ -53,9 +54,15 @@ const AppointmentSchema = new Schema<IAppointment>(
       maxlength: 500,
     },
 
+    declineReason: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+
     status: {
       type: String,
-      enum: ["pending", "confirmed", "checked_in", "cancelled", "completed"],
+      enum: ["unassigned", "pending", "confirmed", "needs_reassignment", "checked_in", "cancelled", "completed"],
       default: "pending",
     },
 

@@ -5,6 +5,7 @@ import {
   checkInAppointment,
   completeAppointment,
   confirmAppointment,
+  declineAppointment,
   getAppointments,
   getAppointmentById,
   updateAppointment
@@ -13,7 +14,7 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createAppointmentSchema, updateAppointmentSchema } from "../validators/schemas";
+import { createAppointmentSchema, declineAppointmentSchema, updateAppointmentSchema } from "../validators/schemas";
 
 const router = express.Router();
 
@@ -39,6 +40,14 @@ router.put(
   protect,
   allowRoles("doctor"),
   confirmAppointment,
+);
+
+router.put(
+  "/:id/decline",
+  protect,
+  allowRoles("doctor"),
+  validateBody(declineAppointmentSchema),
+  declineAppointment,
 );
 
 router.post(

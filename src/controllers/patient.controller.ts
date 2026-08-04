@@ -4,8 +4,30 @@ import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import type { IPatient } from "../models/patient.model";
+import { AppError } from "../middleware/error.middleware";
 
 const patientService = new PatientService();
+
+const ageFromDateOfBirth = (value: unknown): number | undefined => {
+  if (!value) return undefined;
+  const birthDate = new Date(value as string | number | Date);
+  if (Number.isNaN(birthDate.getTime())) return undefined;
+  const today = new Date();
+  let age = today.getUTCFullYear() - birthDate.getUTCFullYear();
+  const birthdayPending =
+    today.getUTCMonth() < birthDate.getUTCMonth() ||
+    (today.getUTCMonth() === birthDate.getUTCMonth() && today.getUTCDate() < birthDate.getUTCDate());
+  if (birthdayPending) age -= 1;
+  if (age < 1 || age > 100) {
+    throw new AppError("Date of birth must produce an age between 1 and 100", 400);
+  }
+  return age;
+};
+
+const withCalculatedAge = (body: Record<string, unknown>): Record<string, unknown> => {
+  const age = ageFromDateOfBirth(body.dateOfBirth);
+  return age === undefined ? body : { ...body, age };
+};
 
 const STAFF_PATIENT_FIELDS = [
   "studentId",
@@ -54,7 +76,7 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
   try {
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = req.body as Record<string, unknown>;
+    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
     const patient = await patientService.createPatient({
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       createdBy: getAuthenticatedObjectId(req),
@@ -131,7 +153,7 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
     const id = req.params.id as string;
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = req.body as Record<string, unknown>;
+    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
     const { before, after } = await patientService.updatePatient(id, {
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       updatedBy: getAuthenticatedObjectId(req),
@@ -149,6 +171,42 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
     });
 
     res.status(200).json({ success: true, message: "Student updated successfully", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateClinicalProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await patientService.updateClinicalProfile(
+      id,
+      req.body,
+      getAuthenticatedObjectId(req),
+      actor.role,
+    );
+
+    logAudit({
+      action: "update",
+      resource: "PatientClinicalProfile",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: actor.role === "doctor"
+        ? "Clinical profile updated and verified"
+        : after.clinicalProfileVerifiedAt
+          ? "Clinical profile saved; existing doctor verification remains current"
+          : "Clinical profile saved for doctor review",
+      data: after,
+    });
   } catch (error) {
     next(error);
   }

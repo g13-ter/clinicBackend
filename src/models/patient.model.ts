@@ -16,12 +16,17 @@ export interface IPatient extends Document {
   guardianName?: string;
   guardianContactNumber?: string;
   healthConditions?: string;
+  familyHistory?: string;
+  pastMedicalHistory?: string;
   medicalAlerts?: {
     allergies: string[];
     chronicConditions: string[];
     currentMedications: string[];
     notes?: string;
   };
+  clinicalProfileUpdatedBy?: mongoose.Types.ObjectId;
+  clinicalProfileVerifiedBy?: mongoose.Types.ObjectId;
+  clinicalProfileVerifiedAt?: Date;
   consents?: {
     treatment: boolean;
     medicineAdministration: boolean;
@@ -98,12 +103,23 @@ const PatientSchema = new Schema<IPatient>(
     guardianName: String,
     guardianContactNumber: String,
     healthConditions: String,
+    familyHistory: String,
+    pastMedicalHistory: String,
     medicalAlerts: {
       allergies: { type: [String], default: [] },
       chronicConditions: { type: [String], default: [] },
       currentMedications: { type: [String], default: [] },
       notes: String,
     },
+    clinicalProfileUpdatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    clinicalProfileVerifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+    },
+    clinicalProfileVerifiedAt: Date,
     consents: {
       treatment: { type: Boolean, default: false },
       medicineAdministration: { type: Boolean, default: false },

@@ -75,6 +75,16 @@ export const createPatientSchema = z.object({
 
 export const updatePatientSchema = createPatientSchema.partial();
 
+export const updateClinicalProfileSchema = z.object({
+  familyHistory: z.string().max(2000).optional(),
+  pastMedicalHistory: z.string().max(4000).optional(),
+  allergies: z.array(z.string().trim().min(1).max(200)).max(50),
+  currentMedications: z.array(z.string().trim().min(1).max(200)).max(50),
+  chronicConditions: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+  notes: z.string().max(2000).optional(),
+  verified: z.boolean().optional(),
+});
+
 export const advanceSchoolYearSchema = z.object({
   schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
   graduatingYearLevel: z.number().int().min(1).max(10).default(4),
@@ -196,6 +206,10 @@ export const updateAppointmentSchema = z.object({
       path: ["cancellationReason"],
     });
   }
+});
+
+export const declineAppointmentSchema = z.object({
+  reason: z.string().trim().min(3, "Please provide a reason for declining").max(500),
 });
 
 
