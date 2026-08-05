@@ -14,6 +14,7 @@ export interface LoginResult {
     name: string;
     email: string;
     role: UserRole;
+    termsAccepted: boolean;
   };
 }
 
@@ -56,6 +57,7 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
+        termsAccepted: user.termsAccepted === true,
       },
     };
   }

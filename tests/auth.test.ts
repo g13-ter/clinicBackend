@@ -26,7 +26,8 @@ beforeAll(async () => {
     name: "TEST Auth User",
     email: TEST_EMAIL,
     password: hashedPassword,
-    role: "staff"
+    role: "staff",
+    termsAccepted: false,
   });
 
 });
@@ -58,6 +59,7 @@ describe("Auth - Login", () => {
     expect(res.headers["set-cookie"]?.[0]).toContain("clinic_session=");
     expect(res.headers["set-cookie"]?.[0]).toContain("HttpOnly");
     expect(res.body.data.user.role).toBe("staff");
+    expect(res.body.data.requiresTermsAcceptance).toBe(true);
 
   });
 
@@ -71,12 +73,34 @@ describe("Auth - Login", () => {
     const active = await agent.get("/api/auth/session");
     expect(active.status).toBe(200);
     expect(active.body.data.user.role).toBe("staff");
+    expect(active.body.data.termsAccepted).toBe(false);
+
+    const blocked = await agent.get("/api/dashboard/stats");
+    expect(blocked.status).toBe(403);
+    expect(blocked.body.code).toBe("TERMS_ACCEPTANCE_REQUIRED");
+
+    const accepted = await agent.post("/api/auth/terms/accept");
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.data.termsAccepted).toBe(true);
+
+    const savedUser = await User.findOne({ email: TEST_EMAIL });
+    expect(savedUser?.termsAccepted).toBe(true);
+    expect(savedUser?.termsAcceptedAt).toBeInstanceOf(Date);
+
+    const allowed = await agent.get("/api/dashboard/stats");
+    expect(allowed.status).toBe(200);
 
     const logout = await agent.post("/api/auth/logout");
     expect(logout.status).toBe(200);
 
     const ended = await agent.get("/api/auth/session");
     expect(ended.status).toBe(401);
+
+    const nextLogin = await agent
+      .post("/api/auth/login")
+      .send({ email: TEST_EMAIL, password: TEST_PASSWORD });
+    expect(nextLogin.status).toBe(200);
+    expect(nextLogin.body.data.requiresTermsAcceptance).toBe(false);
   });
 
 

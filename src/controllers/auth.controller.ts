@@ -3,6 +3,7 @@ import { AuthService } from "../services/auth.service";
 import { AppError } from "../middleware/error.middleware";
 import type { CookieOptions } from "express";
 import { SESSION_COOKIE_NAME } from "../utils/sessionToken";
+import User from "../models/user.model";
 
 const authService = new AuthService();
 
@@ -32,6 +33,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       data: {
         user: result.user,
         expiresAt: result.expiresAt,
+        requiresTermsAcceptance: !result.user.termsAccepted,
       },
       // Bearer tokens remain available to automated tests and API clients
       // outside production; browsers use the HttpOnly cookie.
@@ -53,8 +55,59 @@ export const session = (req: Request, res: Response): void => {
     message: "Session active",
     data: {
       user: req.user,
+      termsAccepted: req.termsAccepted === true,
       expiresAt:
         req.user?.exp ? new Date(req.user.exp * 1000).toISOString() : null,
     },
   });
+};
+
+export const acceptTerms = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      throw new AppError("Authentication required", 401);
+    }
+
+    const acceptedAt = new Date();
+    let user = await User.findOneAndUpdate(
+      {
+        _id: req.user.id,
+        $or: [
+          { termsAccepted: { $ne: true } },
+          { termsAcceptedAt: null },
+        ],
+      },
+      {
+        $set: {
+          termsAccepted: true,
+          termsAcceptedAt: acceptedAt,
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    // Preserve the original timestamp when an accepted request is retried.
+    if (!user) {
+      user = await User.findById(req.user.id);
+    }
+
+    if (!user || !user.isActive) {
+      throw new AppError("Session is no longer valid", 401);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Terms and Agreement accepted",
+      data: {
+        termsAccepted: true,
+        termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? acceptedAt.toISOString(),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
 };

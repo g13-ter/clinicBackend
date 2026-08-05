@@ -9,13 +9,23 @@ export const protect = (
   res: Response,
   next: NextFunction
 ): void => {
-  void authenticate(req, res, next);
+  void authenticate(req, res, next, true);
+};
+
+/** Authenticates a session while allowing a user to complete Terms acceptance. */
+export const protectPendingTerms = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  void authenticate(req, res, next, false);
 };
 
 const authenticate = async (
   req: Request,
   res: Response,
-  next: NextFunction
+  next: NextFunction,
+  requireTermsAcceptance: boolean
 ): Promise<void> => {
   try {
     const token = getRequestToken(req);
@@ -49,6 +59,16 @@ const authenticate = async (
       ...parsed.data,
       role: user.role,
     };
+    req.termsAccepted = user.termsAccepted;
+
+    if (requireTermsAcceptance && !user.termsAccepted) {
+      res.status(403).json({
+        success: false,
+        code: "TERMS_ACCEPTANCE_REQUIRED",
+        message: "You must accept the Terms and Agreement before accessing the system",
+      });
+      return;
+    }
 
     next();
   } catch {

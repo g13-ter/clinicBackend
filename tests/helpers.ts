@@ -23,7 +23,8 @@ export const createTestUserAndLogin = async (
     name: `TEST ${role}`,
     email,
     password: hashedPassword,
-    role
+    role,
+    termsAccepted: true,
   });
 
   const loginRes = await request(app)
