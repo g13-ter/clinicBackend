@@ -215,6 +215,17 @@ describe("Audit Logs - real actions get recorded", () => {
 
 describe("Audit Logs - filtering and pagination", () => {
 
+  it("filters by actor or target search and date range", async () => {
+    const date = new Date().toISOString().slice(0, 10);
+    const res = await request(app)
+      .get(`/api/audit-logs?search=Patient&startDate=${date}&endDate=${date}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.every((log: { resource: string }) => log.resource.includes("Patient"))).toBe(true);
+  });
+
   it("filters correctly by performedBy", async () => {
 
     const res = await request(app)

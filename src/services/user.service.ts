@@ -5,7 +5,14 @@ import { PaginationParams } from "../utils/pagination";
 import type { UserRole } from "../types/roles";
 
 export class UserService {
-  async createUser(data: { name: string; email: string; password: string; role: UserRole }): Promise<IUser> {
+  private assertCanManageRole(actorRole: UserRole, targetRole: UserRole): void {
+    if (actorRole !== "superadmin" && (targetRole === "superadmin" || targetRole === "admin")) {
+      throw new AppError("Only a Super Admin can manage administrative accounts", 403);
+    }
+  }
+
+  async createUser(actorRole: UserRole, data: { name: string; email: string; password: string; role: UserRole }): Promise<IUser> {
+    this.assertCanManageRole(actorRole, data.role);
     const normalizedEmail = data.email.trim().toLowerCase();
     const existing = await User.findOne({ email: normalizedEmail });
     if (existing) {
@@ -27,21 +34,31 @@ export class UserService {
   }
 
   async getUsers(
-    { limit, skip }: PaginationParams
+    { limit, skip }: PaginationParams,
+    actorRole: UserRole,
   ): Promise<{ users: IUser[]; total: number }> {
+    const filter = actorRole === "superadmin"
+      ? {}
+      : { role: { $nin: ["superadmin", "admin"] as UserRole[] } };
     const [users, total] = await Promise.all([
-      User.find().select("-password").sort({ isActive: -1, name: 1 }).skip(skip).limit(limit),
-      User.countDocuments(),
+      User.find(filter)
+        .select("-password")
+        .populate("deactivatedBy", "name email role")
+        .sort({ isActive: -1, name: 1 })
+        .skip(skip)
+        .limit(limit),
+      User.countDocuments(filter),
     ]);
 
     return { users, total };
   }
 
-  async getUserById(id: string): Promise<IUser> {
+  async getUserById(id: string, actorRole?: UserRole): Promise<IUser> {
     const user = await User.findById(id).select("-password");
     if (!user) {
       throw new AppError("User not found", 404);
     }
+    if (actorRole) this.assertCanManageRole(actorRole, user.role);
     return user;
   }
 
@@ -60,11 +77,16 @@ export class UserService {
     return admins.map((admin) => admin.email);
   }
 
-  async updateUser(id: string, data: Partial<{ name: string; email: string; password: string; role: UserRole; isActive: boolean; isAvailable: boolean; scheduleNotes: string }>): Promise<{ before: IUser; after: IUser }> {
+  async updateUser(id: string, actorId: string, actorRole: UserRole, data: Partial<{ name: string; email: string; password: string; role: UserRole; isActive: boolean; isAvailable: boolean; scheduleNotes: string }>): Promise<{ before: IUser; after: IUser }> {
     const before = await User.findById(id).select("-password");
 
     if (!before) {
       throw new AppError("User not found", 404);
+    }
+    this.assertCanManageRole(actorRole, before.role);
+    if (data.role) this.assertCanManageRole(actorRole, data.role);
+    if (id === actorId && before.role === "superadmin" && data.role && data.role !== "superadmin") {
+      throw new AppError("You cannot change your own Super Admin role", 400);
     }
 
     const updateData: Partial<Pick<IUser, "name" | "email" | "password" | "role" | "isActive" | "isAvailable" | "scheduleNotes" | "deactivatedAt" | "deactivatedBy">> & {
@@ -74,7 +96,12 @@ export class UserService {
       ...data,
     };
 
-    if (data.email) updateData.email = data.email.trim().toLowerCase();
+    if (data.email) {
+      const normalizedEmail = data.email.trim().toLowerCase();
+      const existing = await User.findOne({ email: normalizedEmail, _id: { $ne: id } });
+      if (existing) throw new AppError("Email already in use", 409);
+      updateData.email = normalizedEmail;
+    }
     if (data.password) {
       updateData.password = await bcrypt.hash(data.password, 10);
     }
@@ -97,7 +124,7 @@ export class UserService {
     return { before, after };
   }
 
-  async deactivateUser(id: string, performedBy: string): Promise<{ before: IUser; after: IUser }> {
+  async deactivateUser(id: string, performedBy: string, actorRole: UserRole): Promise<{ before: IUser; after: IUser }> {
     if (id === performedBy) {
       throw new AppError("You cannot deactivate your own account", 400);
     }
@@ -106,6 +133,7 @@ export class UserService {
     if (!before) {
       throw new AppError("User not found", 404);
     }
+    this.assertCanManageRole(actorRole, before.role);
     if (!before.isActive) {
       throw new AppError("User is already inactive", 409);
     }
@@ -113,6 +141,12 @@ export class UserService {
       const activeAdminCount = await User.countDocuments({ role: "admin", isActive: { $ne: false } });
       if (activeAdminCount <= 1) {
         throw new AppError("The last active administrator cannot be deactivated", 409);
+      }
+    }
+    if (before.role === "superadmin") {
+      const activeSuperAdminCount = await User.countDocuments({ role: "superadmin", isActive: { $ne: false } });
+      if (activeSuperAdminCount <= 1) {
+        throw new AppError("The last active Super Admin cannot be deactivated", 409);
       }
     }
 

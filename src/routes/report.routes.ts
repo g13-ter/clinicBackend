@@ -9,25 +9,25 @@ import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
 
-// Nurse prepares the clinic report; admin may also generate it for review.
+// Reports contain clinical and inventory analytics and are restricted to clinical roles.
 router.get(
   "/annual-medication",
   protect,
-  allowRoles("admin", "nurse"),
+  allowRoles("doctor", "nurse"),
   getAnnualMedicationReport,
 );
 
 router.get(
   "/clinic-summary",
   protect,
-  allowRoles("admin", "nurse"),
+  allowRoles("doctor", "nurse"),
   getClinicSummaryReport
 );
 
 router.get(
   "/export/:type",
   protect,
-  allowRoles("admin", "nurse"),
+  allowRoles("doctor", "nurse"),
   exportReportCsv,
 );
 

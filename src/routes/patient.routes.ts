@@ -45,7 +45,7 @@ router.get(
 router.post(
   "/school-year/advance",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(advanceSchoolYearSchema),
   advanceStudentSchoolYear,
 );

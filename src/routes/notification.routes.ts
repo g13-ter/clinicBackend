@@ -4,5 +4,5 @@ import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
-router.get("/delivery-history", protect, allowRoles("admin"), getNotificationDeliveryHistory);
+router.get("/delivery-history", protect, allowRoles("admin", "superadmin"), getNotificationDeliveryHistory);
 export default router;

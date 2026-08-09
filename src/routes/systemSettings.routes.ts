@@ -10,11 +10,11 @@ import { updateSystemSettingsSchema } from "../validators/schemas";
 
 const router = express.Router();
 
-router.get("/", protect, allowRoles("admin"), getSystemSettings);
+router.get("/", protect, allowRoles("admin", "superadmin"), getSystemSettings);
 router.put(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(updateSystemSettingsSchema),
   updateSystemSettings,
 );

@@ -13,7 +13,9 @@ import {
 } from "docx";
 import { ReportStats } from "../services/report.service";
 
-// Build the monthly report and mark untracked sections for manual completion.
+// Build period-aware clinic reports and mark untracked sections for manual completion.
+
+export type VisitReportPeriod = "daily" | "weekly" | "monthly" | "yearly" | "custom";
 
 const NOT_TRACKED_NOTE = "Not tracked by system - please complete manually.";
 
@@ -57,36 +59,38 @@ const configuredLine = (label: string, value?: string): Paragraph =>
   value ? new Paragraph({ children: [new TextRun({ text: `${label}: `, bold: true }), new TextRun({ text: value })], spacing: { after: 100 } }) : blankLine(label);
 
 const formatDate = (date: Date): string =>
-  date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 
-const formatPeriodLabel = (start: Date, end: Date): string => {
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  if (sameMonth) {
-    return start.toLocaleDateString("en-US", { year: "numeric", month: "long" });
+export const formatReportPeriodLabel = (start: Date, end: Date, period: VisitReportPeriod): string => {
+  if (period === "daily") return formatDate(start);
+  if (period === "monthly") {
+    return start.toLocaleDateString("en-US", { year: "numeric", month: "long", timeZone: "UTC" });
   }
+  if (period === "yearly") return String(start.getUTCFullYear());
   return `${formatDate(start)} to ${formatDate(end)}`;
 };
 
-const reportTitle = (start: Date, end: Date): string => {
+export const getReportTitle = (start: Date, end: Date, period: VisitReportPeriod): string => {
+  if (period !== "custom") return `${period.toUpperCase()} MEDICAL CASE REPORT`;
   const sameDay =
-    start.getFullYear() === end.getFullYear() &&
-    start.getMonth() === end.getMonth() &&
-    start.getDate() === end.getDate();
+    start.getUTCFullYear() === end.getUTCFullYear() &&
+    start.getUTCMonth() === end.getUTCMonth() &&
+    start.getUTCDate() === end.getUTCDate();
   const durationDays = Math.ceil((end.getTime() - start.getTime()) / 86_400_000);
 
   if (sameDay) return "DAILY MEDICAL CASE REPORT";
   if (durationDays <= 7) return "WEEKLY MEDICAL CASE REPORT";
   if (
-    start.getFullYear() === end.getFullYear() &&
-    start.getMonth() === end.getMonth()
+    start.getUTCFullYear() === end.getUTCFullYear() &&
+    start.getUTCMonth() === end.getUTCMonth()
   ) {
     return "MONTHLY MEDICAL CASE REPORT";
   }
   return "ANNUAL MEDICAL CASE REPORT";
 };
 
-export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
-  const periodLabel = formatPeriodLabel(stats.periodStart, stats.periodEnd);
+export const buildReportDocx = async (stats: ReportStats, period: VisitReportPeriod = "custom"): Promise<Buffer> => {
+  const periodLabel = formatReportPeriodLabel(stats.periodStart, stats.periodEnd, period);
 
   // I. Executive Summary
   const totalVisits = stats.studentAttendance.total;
@@ -99,8 +103,8 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
     `${stats.uniqueStudentsServed} unique ${stats.uniqueStudentsServed === 1 ? "student was" : "students were"} served through ${totalVisits} clinic visits. ` +
     `${stats.appointmentStats.total} ${stats.appointmentStats.total === 1 ? "appointment was" : "appointments were"} booked in this period ` +
     `(${stats.appointmentStats.completed} completed, ${stats.appointmentStats.cancelled} cancelled), and ` +
-    `${stats.nursingAssessmentsCount} nursing ${stats.nursingAssessmentsCount === 1 ? "assessment was" : "assessments were"} and ` +
-    `${stats.physicianMedicalRecordsCount} physician medical ${stats.physicianMedicalRecordsCount === 1 ? "record was" : "records were"} logged. ` +
+    `Clinical documentation included ${stats.nursingAssessmentsCount} nursing ${stats.nursingAssessmentsCount === 1 ? "assessment" : "assessments"} and ` +
+    `${stats.physicianMedicalRecordsCount} physician medical ${stats.physicianMedicalRecordsCount === 1 ? "record" : "records"}. ` +
     `${stats.lowStockMedicines.length > 0
       ? `${stats.lowStockMedicines.length} medicine ${stats.lowStockMedicines.length === 1 ? "item is" : "items are"} currently running low and may require restocking.`
       : `Medicine inventory levels are currently adequate.`} ` +
@@ -278,7 +282,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
       {
         children: [
           new Paragraph({
-            text: reportTitle(stats.periodStart, stats.periodEnd),
+            text: getReportTitle(stats.periodStart, stats.periodEnd, period),
             heading: HeadingLevel.TITLE,
             alignment: AlignmentType.CENTER,
             spacing: { after: 300 },
@@ -288,7 +292,7 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           configuredLine("School Clinic", process.env.CLINIC_NAME),
           new Paragraph({
             children: [
-              new TextRun({ text: "Month & Year: ", bold: true }),
+              new TextRun({ text: "Reporting Period: ", bold: true }),
               new TextRun({ text: periodLabel }),
             ],
             spacing: { after: 100 },
@@ -312,11 +316,24 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           sectionHeading("III. Common Reasons for Clinic Visits"),
           complaintsTable,
 
-          sectionHeading("IV. Medicine Inventory Snapshot"),
+          sectionHeading("IV. Appointments and Consultations"),
+          new Paragraph({
+            text: `${stats.nursingAssessmentsCount} nursing assessments and ${stats.physicianMedicalRecordsCount} physician medical records were logged in this period. Appointment statuses reflect their status when this report was generated.`,
+            spacing: { after: 150 },
+          }),
+          appointmentsTable,
+
+          sectionHeading("V. Referrals"),
+          ...(referralsTable ? [referralsTable] : [new Paragraph({ text: "No referrals recorded in this period.", spacing: { after: 200 } })]),
+
+          sectionHeading("VI. Accidents and Emergencies"),
+          new Paragraph({ text: `${stats.emergencyCount} emergency ${stats.emergencyCount === 1 ? "case was" : "cases were"} recorded in this period.`, spacing: { after: 200 } }),
+
+          sectionHeading("VII. Medicine Inventory Snapshot"),
           new Paragraph({
             children: [
               new TextRun({
-                text: "Current inventory snapshot. Dispensed quantities require a medicine dispensing ledger and are not shown in this report.",
+                text: "Current inventory snapshot at report generation time. Use the medication and inventory usage reports for detailed period movements.",
                 italics: true,
                 size: 18,
               }),
@@ -325,23 +342,10 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           }),
           medicineTable,
 
-          sectionHeading("Appointments & Consultations Summary (System Data)"),
-          new Paragraph({
-            text: `${stats.nursingAssessmentsCount} nursing assessments and ${stats.physicianMedicalRecordsCount} physician medical records were logged in this period. Appointment statuses reflect their status when this report was generated.`,
-            spacing: { after: 150 },
-          }),
-          appointmentsTable,
-
-          sectionHeading("V. Health Programs and Activities"),
+          sectionHeading("VIII. Health Programs and Activities"),
           new Paragraph({ text: NOT_TRACKED_NOTE, spacing: { after: 200 } }),
 
-          sectionHeading("VI. Referrals"),
-          ...(referralsTable ? [referralsTable] : [new Paragraph({ text: "No referrals recorded in this period.", spacing: { after: 200 } })]),
-
-          sectionHeading("VII. Accidents and Emergencies"),
-          new Paragraph({ text: `${stats.emergencyCount} emergency ${stats.emergencyCount === 1 ? "case was" : "cases were"} recorded in this period.`, spacing: { after: 200 } }),
-
-          sectionHeading("VIII. Issues and Concerns"),
+          sectionHeading("IX. Issues and Concerns"),
           ...(stats.hasTestData ? [new Paragraph({ text: "Data quality warning: test or demo records were detected. Remove or archive them before formal submission.", spacing: { after: 100 } })] : []),
           new Paragraph({
             children: [
@@ -353,12 +357,12 @@ export const buildReportDocx = async (stats: ReportStats): Promise<Buffer> => {
           blankLine("Equipment needing repair/replacement"),
           blankLine("Other concerns"),
 
-          sectionHeading("IX. Recommendations"),
+          sectionHeading("X. Recommendations"),
           ...recommendations.map(
             (text, i) => new Paragraph({ text: `${i + 1}. ${text}`, spacing: { after: 50 } })
           ),
 
-          sectionHeading("X. Prepared By"),
+          sectionHeading("XI. Prepared By"),
           new Paragraph({ children: [new TextRun({ text: "Prepared by:", bold: true })], spacing: { after: 150 } }),
           configuredLine("Name", process.env.REPORT_PREPARED_BY),
           configuredLine("Position", process.env.REPORT_PREPARER_POSITION),

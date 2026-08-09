@@ -16,6 +16,7 @@ import { generalLimiter } from "./middleware/rateLimit.middleware";
 import { AppError, notFoundHandler, errorHandler } from "./middleware/error.middleware";
 import auditLogRoutes from "./routes/auditLog.routes";
 import reportRoutes from "./routes/report.routes";
+import monthlyInventoryRoutes from "./routes/monthlyInventory.routes";
 import purchaseRequestRoutes from "./routes/purchaseRequest.routes";
 import internalRoutes from "./routes/internal.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
@@ -107,6 +108,7 @@ app.use("/api/medicines", medicineRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
 
 app.use("/api/reports", reportRoutes);
+app.use("/api/monthly-inventory", monthlyInventoryRoutes);
 
 app.use("/api/purchase-requests", purchaseRequestRoutes);
 

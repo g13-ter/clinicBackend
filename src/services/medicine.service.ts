@@ -2,6 +2,7 @@ import Medicine, { IMedicine } from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { escapeRegex } from "../utils/regex";
+import type { ClientSession } from "mongoose";
 
 // Medicines within this many days of expiryDate are flagged as expiring soon.
 const EXPIRING_SOON_DAYS = 30;
@@ -47,7 +48,12 @@ const toMedicineView = (medicine: IMedicine) => ({
 export type MedicineView = ReturnType<typeof toMedicineView>;
 
 export class MedicineService {
-  async createMedicine(data: Partial<IMedicine>): Promise<IMedicine> {
+  async createMedicine(data: Partial<IMedicine>, session?: ClientSession): Promise<IMedicine> {
+    if (session) {
+      const [medicine] = await Medicine.create([data], { session });
+      if (!medicine) throw new Error("Medicine was not created");
+      return medicine;
+    }
     return await Medicine.create(data);
   }
 

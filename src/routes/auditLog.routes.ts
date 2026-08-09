@@ -8,7 +8,7 @@ const router = express.Router();
 router.get(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   getAuditLogs
 );
 

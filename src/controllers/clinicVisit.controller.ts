@@ -174,7 +174,7 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
     const { patientId, ...visitData } = req.body;
-    if (actor.role === "admin") {
+    if (actor.role === "admin" || actor.role === "superadmin") {
       throw new AppError("Administrators cannot create clinical visits", 403);
     }
     const permittedVisitData = restrictVisitFields(actor.role, visitData);

@@ -2,6 +2,7 @@ import request from "supertest";
 import app from "../src/app";
 import User from "../src/models/user.model";
 import bcrypt from "bcryptjs";
+import type { UserRole } from "../src/types/roles";
 
 
 // Shared password for temporary test accounts.
@@ -10,7 +11,7 @@ export const TEST_PASSWORD = "testpass123";
 
 // Create a test user directly and return a valid JWT.
 export const createTestUserAndLogin = async (
-  role: "admin" | "doctor" | "nurse" | "staff",
+  role: UserRole,
   emailPrefix: string
 ): Promise<{ token: string; userId: string; email: string }> => {
 

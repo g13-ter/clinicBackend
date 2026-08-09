@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { USER_ROLES } from "../types/roles";
 
 
 // ===== AUTH =====
@@ -7,8 +8,8 @@ export const registerSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Must be a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["admin", "doctor", "nurse", "staff"], {
-    message: "Role must be admin, doctor, nurse, or staff"
+  role: z.enum(USER_ROLES, {
+    message: "Role must be superadmin, admin, doctor, nurse, or staff"
   })
 });
 
@@ -24,7 +25,7 @@ export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(6).optional(),
-    role: z.enum(["admin", "doctor", "nurse", "staff"]).optional(),
+    role: z.enum(USER_ROLES).optional(),
     // Deactivation uses DELETE so it can enforce self/last-admin safeguards.
     // PUT may only reactivate an existing account.
     isActive: z.literal(true).optional(),
@@ -223,7 +224,8 @@ export const createMedicineSchema = z.object({
   expiryDate: z.coerce.date().optional(),
   lowStockThreshold: z.number().int().min(0).optional(),
   supplier: z.string().optional(),
-  dateReceived: z.coerce.date().optional()
+  dateReceived: z.coerce.date().optional(),
+  batchNumber: z.string().trim().min(1, "Batch number is required").optional(),
 });
 
 export const updateMedicineSchema = createMedicineSchema.partial();
@@ -235,6 +237,19 @@ export const createInventoryBatchSchema = z.object({
   supplier: z.string().optional(),
   receivedAt: z.coerce.date().optional(),
   notes: z.string().optional(),
+});
+
+export const monthlyInventoryPeriodSchema = z.object({
+  month: z.number().int().min(1).max(12),
+  year: z.number().int().min(2000).max(9999),
+});
+
+export const monthlyInventoryDraftSchema = z.object({
+  items: z.array(z.object({
+    medicineId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid medicine ID"),
+    physicalCount: z.number().int().min(0),
+    varianceNotes: z.string().trim().max(1000).optional(),
+  })),
 });
 
 

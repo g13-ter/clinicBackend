@@ -8,6 +8,7 @@ import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { withMongoTransaction } from "../utils/transaction";
 import StockMovement from "../models/stockMovement.model";
+import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
 
 export interface StockChange {
   medicine: IMedicine;
@@ -19,6 +20,9 @@ export class MedicalHistoryService {
     data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string }[] }
   ): Promise<{ entry: IMedicalHistory; stockChanges: StockChange[] }> {
     try {
+      if ((data.prescribedItems?.length ?? 0) > 0) {
+        await assertInventoryPeriodOpen(new Date());
+      }
       return await withMongoTransaction(async (session) => {
         if (data.visitId) {
           const existingQuery = MedicalHistory.findOne({ visitId: data.visitId });

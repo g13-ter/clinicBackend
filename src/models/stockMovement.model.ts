@@ -6,7 +6,8 @@ export type StockMovementType =
   | "dispensed"
   | "adjustment"
   | "expired"
-  | "damaged";
+  | "damaged"
+  | "lost";
 
 export interface IStockMovement extends Document {
   medicineId: mongoose.Types.ObjectId;
@@ -27,7 +28,7 @@ const StockMovementSchema = new Schema<IStockMovement>(
     visitId: { type: Schema.Types.ObjectId, ref: "ClinicVisit" },
     type: {
       type: String,
-      enum: ["initial_stock", "received", "dispensed", "adjustment", "expired", "damaged"],
+      enum: ["initial_stock", "received", "dispensed", "adjustment", "expired", "damaged", "lost"],
       required: true,
       index: true,
     },

@@ -1,5 +1,5 @@
 import mongoose, { Schema, Document } from "mongoose";
-import type { UserRole } from "../types/roles";
+import { USER_ROLES, type UserRole } from "../types/roles";
 
 export interface IUser extends Document {
   name: string;
@@ -39,7 +39,7 @@ const UserSchema = new Schema<IUser>(
     role: {
       type: String,
       required: true,
-      enum: ["admin", "doctor", "nurse", "staff"],
+      enum: USER_ROLES,
     },
 
     isActive: { type: Boolean, default: true, index: true },

@@ -38,7 +38,7 @@ router.get(
 router.get(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   getUsers
 );
 
@@ -48,7 +48,7 @@ router.get(
 router.get(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   getUserById
 );
 
@@ -58,7 +58,7 @@ router.get(
 router.post(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(registerSchema),
   createUser
 );
@@ -69,7 +69,7 @@ router.post(
 router.put(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(updateUserSchema),
   updateUser
 );
@@ -80,7 +80,7 @@ router.put(
 router.delete(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   deleteUser
 );
 

@@ -25,12 +25,24 @@ export const errorHandler = (
 ): void => {
   const errorDetails =
     typeof err === "object" && err !== null
-      ? err as { statusCode?: unknown; message?: unknown }
+      ? err as {
+          statusCode?: unknown;
+          message?: unknown;
+          code?: unknown;
+          keyPattern?: Record<string, unknown>;
+          keyValue?: Record<string, unknown>;
+        }
       : {};
-  const statusCode =
-    typeof errorDetails.statusCode === "number" ? errorDetails.statusCode : 500;
-  const message =
-    typeof errorDetails.message === "string"
+  const duplicateKey = errorDetails.code === 11000;
+  const duplicateEmail = duplicateKey && Boolean(
+    errorDetails.keyPattern?.email || errorDetails.keyValue?.email,
+  );
+  const statusCode = duplicateKey
+    ? 409
+    : typeof errorDetails.statusCode === "number" ? errorDetails.statusCode : 500;
+  const message = duplicateKey
+    ? duplicateEmail ? "Email already in use" : "Duplicate value already exists"
+    : typeof errorDetails.message === "string"
       ? errorDetails.message
       : "Something went wrong on the server";
   const errorId = req.requestId || randomUUID();

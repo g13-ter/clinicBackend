@@ -5,6 +5,7 @@ import app from "../src/app";
 import Patient from "../src/models/patient.model";
 import ClinicVisit from "../src/models/clinicVisit.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
+import { formatReportPeriodLabel, getReportTitle } from "../src/utils/reportDocx";
 
 dotenv.config();
 
@@ -24,6 +25,8 @@ let adminToken: string;
 let adminId: string;
 let nurseToken: string;
 let nurseId: string;
+let doctorToken: string;
+let doctorId: string;
 
 let testPatientId: string;
 let testVisitId: string;
@@ -46,6 +49,10 @@ beforeAll(async () => {
   const nurse = await createTestUserAndLogin("nurse", "report_nurse");
   nurseToken = nurse.token;
   nurseId = nurse.userId;
+
+  const doctor = await createTestUserAndLogin("doctor", "report_doctor");
+  doctorToken = doctor.token;
+  doctorId = doctor.userId;
 
   // Seed reportable clinic data.
   const patient = await Patient.create({
@@ -76,6 +83,7 @@ afterAll(async () => {
 
   await deleteTestUser(adminId);
   await deleteTestUser(nurseId);
+  await deleteTestUser(doctorId);
 
   await ClinicVisit.findByIdAndDelete(testVisitId);
   await Patient.findByIdAndDelete(testPatientId);
@@ -106,6 +114,17 @@ describe("Clinic Summary Report - access control", () => {
 
   });
 
+  it("allows doctors and blocks admins", async () => {
+    const doctorResponse = await request(app)
+      .get("/api/reports/clinic-summary")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    const adminResponse = await request(app)
+      .get("/api/reports/clinic-summary")
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(doctorResponse.status).toBe(200);
+    expect(adminResponse.status).toBe(403);
+  });
+
 });
 
 
@@ -115,7 +134,7 @@ describe("Clinic Summary Report - default range (no dates given)", () => {
 
     const res = await request(app)
       .get("/api/reports/clinic-summary")
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .buffer(true)
       .parse(binaryParser);
 
@@ -138,7 +157,7 @@ describe("Clinic Summary Report - custom date range", () => {
 
     const res = await request(app)
       .get("/api/reports/clinic-summary?startDate=2026-06-01")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/required/i);
@@ -150,7 +169,7 @@ describe("Clinic Summary Report - custom date range", () => {
 
     const res = await request(app)
       .get("/api/reports/clinic-summary?startDate=not-a-date&endDate=2026-06-30")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(400);
 
@@ -161,7 +180,7 @@ describe("Clinic Summary Report - custom date range", () => {
 
     const res = await request(app)
       .get("/api/reports/clinic-summary?startDate=2026-06-30&endDate=2026-06-01")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/startDate must be before endDate/i);
@@ -181,7 +200,7 @@ describe("Clinic Summary Report - custom date range", () => {
 
     const res = await request(app)
       .get(`/api/reports/clinic-summary?startDate=${startDate}&endDate=${endDate}`)
-      .set("Authorization", `Bearer ${adminToken}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
       .buffer(true)
       .parse(binaryParser);
 
@@ -205,7 +224,7 @@ describe("CSV report exports", () => {
     ["medication-consumption", "Quantity Dispensed"],
     ["medication-usage-details", "Recorded / Dispensed By"],
   ])("exports the %s report", async (reportType, expectedHeader) => {
-    const token = reportType === "medication-usage-details" ? nurseToken : adminToken;
+    const token = reportType === "medication-usage-details" ? doctorToken : nurseToken;
     const res = await request(app)
       .get(`/api/reports/export/${reportType}`)
       .set("Authorization", `Bearer ${token}`);
@@ -223,14 +242,14 @@ describe("CSV report exports", () => {
         .set("Authorization", `Bearer ${adminToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.message).toMatch(/confidential student health information/i);
+      expect(res.body.message).toMatch(/access denied/i);
     },
   );
 
   it("exports the medication inventory columns requested by the clinic", async () => {
     const res = await request(app)
       .get("/api/reports/export/medication-inventory")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
@@ -246,7 +265,7 @@ describe("CSV report exports", () => {
   it("exports inventory stock as a CSV attachment", async () => {
     const res = await request(app)
       .get("/api/reports/export/inventory-stock")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/text\/csv/);
@@ -258,7 +277,7 @@ describe("CSV report exports", () => {
   it("rejects an unsupported export type", async () => {
     const res = await request(app)
       .get("/api/reports/export/not-a-report")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/unsupported/i);
@@ -269,7 +288,7 @@ describe("Annual medication report", () => {
   it("exports an Excel-compatible school-year medication matrix", async () => {
     const res = await request(app)
       .get("/api/reports/annual-medication")
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${nurseToken}`);
 
     expect(res.status).toBe(200);
     expect(res.headers["content-type"]).toMatch(/application\/vnd\.ms-excel/);
@@ -279,6 +298,22 @@ describe("Annual medication report", () => {
     expect(res.text).toContain(">July</th>");
     expect(res.text).toContain("Total Stocks");
     expect(res.text).toContain("Total Remaining");
+  });
+});
+
+describe("Visit report period headings", () => {
+  const start = new Date("2026-08-10T00:00:00.000Z");
+  const end = new Date("2026-08-10T23:59:59.999Z");
+
+  it("uses a daily title and exact reporting date", () => {
+    expect(getReportTitle(start, end, "daily")).toBe("DAILY MEDICAL CASE REPORT");
+    expect(formatReportPeriodLabel(start, end, "daily")).toBe("August 10, 2026");
+  });
+
+  it("uses the explicitly selected weekly, monthly, and yearly titles", () => {
+    expect(getReportTitle(start, end, "weekly")).toBe("WEEKLY MEDICAL CASE REPORT");
+    expect(getReportTitle(start, end, "monthly")).toBe("MONTHLY MEDICAL CASE REPORT");
+    expect(getReportTitle(start, end, "yearly")).toBe("YEARLY MEDICAL CASE REPORT");
   });
 });
 
