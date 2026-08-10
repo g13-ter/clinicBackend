@@ -1,4 +1,4 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import mongoose from "mongoose";
 import type { Server } from "node:http";
 import connectDB from "./config/db";
@@ -7,7 +7,6 @@ import { validateEnv } from "./utils/validateEnv";
 import logger, { errorMetadata } from "./utils/logger";
 import { startBackgroundJobs } from "./jobs/backgroundJobs";
 
-dotenv.config();
 validateEnv();
 
 const PORT = Number(process.env.PORT) || 5000;

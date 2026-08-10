@@ -5,6 +5,7 @@ import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import type { IPatient } from "../models/patient.model";
 import { AppError } from "../middleware/error.middleware";
+import { CURRENT_CONSENT_VERSION } from "../config/consent";
 
 const patientService = new PatientService();
 
@@ -27,6 +28,21 @@ const ageFromDateOfBirth = (value: unknown): number | undefined => {
 const withCalculatedAge = (body: Record<string, unknown>): Record<string, unknown> => {
   const age = ageFromDateOfBirth(body.dateOfBirth);
   return age === undefined ? body : { ...body, age };
+};
+
+const withConsentEvidence = (body: Record<string, unknown>, recordedBy: string) => {
+  const consents = body.consents;
+  if (!consents || typeof consents !== "object") return body;
+  return {
+    ...body,
+    consents: {
+      ...(consents as Record<string, unknown>),
+      version: CURRENT_CONSENT_VERSION,
+      source: "in_person",
+      updatedAt: new Date(),
+      recordedBy,
+    },
+  };
 };
 
 const STAFF_PATIENT_FIELDS = [
@@ -71,12 +87,22 @@ const toAdminPatient = (patient: IPatient) => {
   return { _id, studentId, firstName, lastName, gender, course, yearLevel, contactNumber, isActive };
 };
 
+const patientForRole = (patient: IPatient, role: string) =>
+  role === "admin" || role === "superadmin"
+    ? toAdminPatient(patient)
+    : role === "staff"
+      ? toDemographicPatient(patient)
+      : patient;
+
 // CREATE
 export const createPatient = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
+    const submitted = withConsentEvidence(
+      withCalculatedAge(req.body as Record<string, unknown>),
+      authenticatedUser.id,
+    );
     const patient = await patientService.createPatient({
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       createdBy: getAuthenticatedObjectId(req),
@@ -92,7 +118,11 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
       path: req.originalUrl,
     });
 
-    res.status(201).json({ success: true, message: "Student created successfully", data: patient });
+    res.status(201).json({
+      success: true,
+      message: "Student created successfully",
+      data: patientForRole(patient, authenticatedUser.role),
+    });
   } catch (error) {
     next(error);
   }
@@ -153,7 +183,10 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
     const id = req.params.id as string;
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
+    const submitted = withConsentEvidence(
+      withCalculatedAge(req.body as Record<string, unknown>),
+      authenticatedUser.id,
+    );
     const { before, after } = await patientService.updatePatient(id, {
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       updatedBy: getAuthenticatedObjectId(req),
@@ -170,7 +203,11 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Student updated successfully", data: after });
+    res.status(200).json({
+      success: true,
+      message: "Student updated successfully",
+      data: patientForRole(after, authenticatedUser.role),
+    });
   } catch (error) {
     next(error);
   }
@@ -230,7 +267,11 @@ export const archivePatient = async (req: Request, res: Response, next: NextFunc
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Student archived successfully", data: after });
+    res.status(200).json({
+      success: true,
+      message: "Student archived successfully",
+      data: { _id: after._id, studentId: after.studentId, isActive: after.isActive },
+    });
   } catch (error) {
     next(error);
   }

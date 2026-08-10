@@ -33,6 +33,9 @@ export interface IPatient extends Document {
     dataPrivacy: boolean;
     guardianName?: string;
     updatedAt?: Date;
+    version?: string;
+    source?: "in_person" | "guardian_form";
+    recordedBy?: mongoose.Types.ObjectId;
   };
   schoolYear?: string;
   enrollmentStatus: "active" | "graduated" | "transferred";
@@ -126,6 +129,9 @@ const PatientSchema = new Schema<IPatient>(
       dataPrivacy: { type: Boolean, default: false },
       guardianName: String,
       updatedAt: Date,
+      version: String,
+      source: { type: String, enum: ["in_person", "guardian_form"] },
+      recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     },
     schoolYear: String,
     enrollmentStatus: {

@@ -7,6 +7,9 @@ import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUse
 import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger, { errorMetadata } from "../utils/logger";
 import StockMovement from "../models/stockMovement.model";
+import { assertInventoryPeriodOpen } from "../services/monthlyInventory.service";
+import InventoryBatch from "../models/inventoryBatch.model";
+import { withMongoTransaction } from "../utils/transaction";
 
 const medicineService = new MedicineService();
 const userService = new UserService();
@@ -15,31 +18,53 @@ const userService = new UserService();
 export const createMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { name, category, quantity, unit, expiryDate, lowStockThreshold, supplier, dateReceived } = req.body;
+    const { name, category, quantity, unit, expiryDate, lowStockThreshold, supplier, dateReceived, batchNumber } = req.body;
+    const receivedAt = dateReceived ? new Date(dateReceived) : new Date();
+    await assertInventoryPeriodOpen(receivedAt);
 
-    const medicine = await medicineService.createMedicine({
-      name,
-      category,
-      quantity,
-      unit,
-      expiryDate,
-      lowStockThreshold,
-      supplier,
-      dateReceived,
-      lastUpdatedBy: getAuthenticatedObjectId(req),
+    const medicine = await withMongoTransaction(async (session) => {
+      const created = await medicineService.createMedicine({
+        name,
+        category,
+        quantity,
+        unit,
+        expiryDate,
+        lowStockThreshold,
+        supplier,
+        dateReceived: receivedAt,
+        lastUpdatedBy: getAuthenticatedObjectId(req),
+      }, session);
+
+      let batchId;
+      if (created.quantity > 0 && batchNumber) {
+        const [batch] = await InventoryBatch.create([{
+          medicineId: created._id,
+          batchNumber,
+          quantityReceived: created.quantity,
+          quantityRemaining: created.quantity,
+          ...(expiryDate ? { expiryDate } : {}),
+          ...(supplier ? { supplier } : {}),
+          receivedAt,
+          receivedBy: getAuthenticatedObjectId(req),
+          notes: "Initial batch recorded when medicine was created",
+        }], session ? { session } : {});
+        batchId = batch?._id;
+      }
+
+      if (created.quantity > 0) {
+        await StockMovement.create([{
+          medicineId: created._id,
+          ...(batchId ? { batchId } : {}),
+          type: "initial_stock",
+          quantityChange: created.quantity,
+          balanceAfter: created.quantity,
+          occurredAt: receivedAt,
+          performedBy: getAuthenticatedObjectId(req),
+          notes: "Initial stock recorded when medicine was created",
+        }], session ? { session } : {});
+      }
+      return created;
     });
-
-    if (medicine.quantity > 0) {
-      await StockMovement.create({
-        medicineId: medicine._id,
-        type: "initial_stock",
-        quantityChange: medicine.quantity,
-        balanceAfter: medicine.quantity,
-        occurredAt: medicine.dateReceived ?? new Date(),
-        performedBy: getAuthenticatedObjectId(req),
-        notes: "Initial stock recorded when medicine was created",
-      });
-    }
 
     logAudit({
       action: "create",
@@ -55,6 +80,29 @@ export const createMedicine = async (req: Request, res: Response, next: NextFunc
   } catch (error) {
     next(error);
   }
+};
+
+// Prescribing intentionally exposes no supplier, batch, expiry, or mutation metadata.
+export const getPrescriptionMedicines = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const search = req.query.search as string | undefined;
+    const pagination = getPaginationParams(req.query);
+    const { medicines, total } = await medicineService.getMedicines(pagination, search);
+    const data = medicines.map((medicine) => ({
+      _id: medicine._id,
+      name: medicine.name,
+      unit: medicine.unit,
+      quantity: medicine.quantity,
+      status: medicine.status,
+      isLowStock: medicine.isLowStock,
+    }));
+    res.json({
+      success: true,
+      message: "Prescription medicines retrieved successfully",
+      data,
+      pagination: buildPaginationMeta(pagination.page, pagination.limit, total),
+    });
+  } catch (error) { next(error); }
 };
 
 // GET ALL — read-only, not audit-logged
@@ -98,17 +146,6 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
       ...req.body,
       lastUpdatedBy: getAuthenticatedObjectId(req),
     });
-
-    if (before.quantity !== after.quantity) {
-      await StockMovement.create({
-        medicineId: after._id,
-        type: "adjustment",
-        quantityChange: after.quantity - before.quantity,
-        balanceAfter: after.quantity,
-        performedBy: getAuthenticatedObjectId(req),
-        notes: "Manual inventory quantity adjustment",
-      });
-    }
 
     logAudit({
       action: "update",
@@ -173,7 +210,7 @@ export const deleteMedicine = async (req: Request, res: Response, next: NextFunc
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
 
-    const deleted = await medicineService.deleteMedicine(id);
+    const deleted = await medicineService.deleteMedicine(id, userId);
 
     logAudit({
       action: "delete",
@@ -185,7 +222,7 @@ export const deleteMedicine = async (req: Request, res: Response, next: NextFunc
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Medicine removed from inventory successfully" });
+    res.status(200).json({ success: true, message: "Medicine discontinued successfully" });
   } catch (error) {
     next(error);
   }

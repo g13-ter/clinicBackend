@@ -13,4 +13,12 @@ router.get(
   getDashboardStats
 );
 
+// Clinical analytics are never exposed to administrative or front-desk accounts.
+router.get(
+  "/analytics",
+  protect,
+  allowRoles("doctor", "nurse"),
+  getDashboardStats,
+);
+
 export default router;

@@ -169,7 +169,11 @@ export const getAppointments = async (req: Request, res: Response, next: NextFun
 export const getAppointmentById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const appointment = await appointmentService.getAppointmentById(id);
+    const actor = getAuthenticatedUser(req);
+    const appointment = await appointmentService.getAppointmentById(
+      id,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
 
     res.status(200).json({ success: true, message: "Appointment retrieved successfully", data: appointment });
   } catch (error) {

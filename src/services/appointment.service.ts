@@ -87,7 +87,7 @@ export class AppointmentService {
     return { appointments, total };
   }
 
-  async getAppointmentById(id: string): Promise<IAppointment> {
+  async getAppointmentById(id: string, doctorId?: string): Promise<IAppointment> {
     const appointment = await Appointment.findById(id)
       .populate("patientId", "studentId firstName lastName")
       .populate("doctorId", "name role")
@@ -97,6 +97,13 @@ export class AppointmentService {
 
     if (!appointment) {
       throw new AppError("Appointment not found", 404);
+    }
+
+    if (doctorId) {
+      const assigned = appointment.doctorId as unknown as { _id?: unknown } | undefined;
+      if (String(assigned?._id ?? assigned ?? "") !== doctorId) {
+        throw new AppError("You can only view appointments assigned to you", 403);
+      }
     }
 
     return appointment;
@@ -170,9 +177,12 @@ export class AppointmentService {
     ) {
       throw new AppError("You can only complete your own appointments", 403);
     }
+    if (before.status !== "checked_in") {
+      throw new AppError("Only a checked-in appointment can be completed", 409);
+    }
 
-    const after = await Appointment.findByIdAndUpdate(
-      id,
+    const after = await Appointment.findOneAndUpdate(
+      { _id: id, status: "checked_in" },
       {
         status: "completed",
         updatedBy: userId,
@@ -201,8 +211,8 @@ export class AppointmentService {
       throw new AppError("Only pending appointments can be confirmed", 409);
     }
 
-    const after = await Appointment.findByIdAndUpdate(
-      id,
+    const after = await Appointment.findOneAndUpdate(
+      { _id: id, status: "pending", doctorId },
       { status: "confirmed", updatedBy: doctorId },
       { returnDocument: "after", runValidators: true, ...(session ? { session } : {}) },
     );
@@ -224,8 +234,8 @@ export class AppointmentService {
       throw new AppError("Only pending appointments can be declined", 409);
     }
 
-    const after = await Appointment.findByIdAndUpdate(
-      id,
+    const after = await Appointment.findOneAndUpdate(
+      { _id: id, status: "pending", doctorId },
       {
         status: "needs_reassignment",
         declineReason: reason,

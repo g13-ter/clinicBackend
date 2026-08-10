@@ -8,8 +8,8 @@ import { Types } from "mongoose";
 type VisitStatus = IClinicVisit["status"];
 
 const ALLOWED_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
-  triage: ["ready_for_doctor", "in_consultation", "completed", "referred", "cancelled"],
-  ready_for_doctor: ["in_consultation", "paused", "completed", "referred", "cancelled"],
+  triage: ["ready_for_doctor", "referred", "cancelled"],
+  ready_for_doctor: ["in_consultation", "referred", "cancelled"],
   in_consultation: ["paused", "completed", "referred", "cancelled"],
   paused: ["in_consultation", "completed", "referred", "cancelled"],
   completed: [],
@@ -20,6 +20,7 @@ const ALLOWED_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
 interface PatientVisitFilter {
   patientId: string;
   isActive: true;
+  assignedDoctorId?: string;
   $or?: Array<Record<string, unknown>>;
 }
 
@@ -31,7 +32,8 @@ export class ClinicVisitService {
   async getVisitsByPatient(
     patientId: string,
     { limit, skip }: PaginationParams,
-    search?: string
+    search?: string,
+    assignedDoctorId?: string,
   ): Promise<{ visits: IClinicVisit[]; total: number }> {
     if (!patientId) {
       throw new AppError("Patient ID is required", 400);
@@ -40,6 +42,7 @@ export class ClinicVisitService {
     const filter: PatientVisitFilter = {
       patientId,
       isActive: true,
+      ...(assignedDoctorId ? { assignedDoctorId } : {}),
     };
 
     if (search?.trim()) {
@@ -71,7 +74,7 @@ export class ClinicVisitService {
     return { visits, total };
   }
 
-  async getVisitById(id: string): Promise<IClinicVisit> {
+  async getVisitById(id: string, assignedDoctorId?: string): Promise<IClinicVisit> {
     const visit = await ClinicVisit.findById(id)
       .populate("patientId")
       .populate("appointmentId", "appointmentDate reason status")
@@ -81,6 +84,13 @@ export class ClinicVisitService {
 
     if (!visit) {
       throw new AppError("Clinic visit not found", 404);
+    }
+
+    if (assignedDoctorId) {
+      const assigned = visit.assignedDoctorId as unknown as { _id?: unknown } | undefined;
+      if (String(assigned?._id ?? assigned ?? "") !== assignedDoctorId) {
+        throw new AppError("This visit is assigned to another doctor", 403);
+      }
     }
 
     return visit;
@@ -112,8 +122,8 @@ export class ClinicVisitService {
       throw new AppError("Clinic visit not found", 404);
     }
 
-    const after = await ClinicVisit.findByIdAndUpdate(
-      id,
+    const after = await ClinicVisit.findOneAndUpdate(
+      { _id: id, status: before.status },
       { isActive: false, updatedBy },
       { returnDocument: "after" }
     );
@@ -155,8 +165,8 @@ export class ClinicVisitService {
     }
     this.assertTransition(before.status, "ready_for_doctor");
 
-    const after = await ClinicVisit.findByIdAndUpdate(
-      id,
+    const after = await ClinicVisit.findOneAndUpdate(
+      { _id: id, status: before.status },
       { readyForDoctor: true, status: "ready_for_doctor", updatedBy },
       { returnDocument: "after" }
     );
@@ -172,22 +182,62 @@ export class ClinicVisitService {
     id: string,
     data: Pick<IClinicVisit, "status" | "referralFacility" | "referralReason" | "referralOutcome" | "guardianNotifiedAt" | "closureOutcome">,
     updatedBy: string,
+    role: "nurse" | "doctor",
   ): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
     const before = await ClinicVisit.findById(id);
     if (!before) throw new AppError("Clinic visit not found", 404);
     this.assertTransition(before.status, data.status);
+    const allowedForRole: Record<"nurse" | "doctor", VisitStatus[]> = {
+      nurse: ["ready_for_doctor", "referred", "cancelled"],
+      doctor: ["in_consultation", "paused", "completed", "referred", "cancelled"],
+    };
+    if (!allowedForRole[role].includes(data.status)) {
+      throw new AppError(`${role === "nurse" ? "Nurses" : "Doctors"} cannot set visit status to ${data.status}`, 403);
+    }
+    if (data.status === "ready_for_doctor") {
+      const missingVitals = [
+        !before.bloodPressure ? "blood pressure" : "",
+        before.temperature == null ? "temperature" : "",
+        before.pulseRate == null ? "pulse rate" : "",
+      ].filter(Boolean);
+      if (missingVitals.length > 0) {
+        throw new AppError(`Record ${missingVitals.join(", ")} before marking the student ready for doctor`, 409);
+      }
+    }
+    if (role === "doctor") {
+      const assigned = before.assignedDoctorId;
+      if (assigned && String(assigned) !== updatedBy) {
+        throw new AppError("This visit is assigned to another doctor", 403);
+      }
+      if (data.status === "in_consultation" && !before.readyForDoctor && !before.isEmergency) {
+        throw new AppError("A nurse must finish triage before consultation starts", 409);
+      }
+    }
 
     const update: Partial<IClinicVisit> = {
       ...data,
       updatedBy: new Types.ObjectId(updatedBy),
     };
+    if (role === "doctor" && data.status === "in_consultation" && !before.assignedDoctorId) {
+      update.assignedDoctorId = new Types.ObjectId(updatedBy);
+    }
     if (data.status === "ready_for_doctor") update.readyForDoctor = true;
     if (data.status === "triage") update.readyForDoctor = false;
     if (data.status === "completed" || data.status === "referred" || data.status === "cancelled") {
       update.closedAt = new Date();
     }
-    const after = await ClinicVisit.findByIdAndUpdate(id, update, { returnDocument: "after", runValidators: true });
-    if (!after) throw new AppError("Clinic visit not found", 404);
+    const after = await ClinicVisit.findOneAndUpdate(
+      {
+        _id: id,
+        status: before.status,
+        ...(role === "doctor"
+          ? { $or: [{ assignedDoctorId: updatedBy }, { assignedDoctorId: null }] }
+          : {}),
+      },
+      update,
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Visit changed or was claimed by another clinician; refresh and try again", 409);
 
     if (before.appointmentId && ["completed", "referred", "cancelled"].includes(data.status)) {
       await Appointment.findByIdAndUpdate(before.appointmentId, {

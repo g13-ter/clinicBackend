@@ -3,6 +3,7 @@ import Medicine from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { withMongoTransaction } from "../utils/transaction";
 import StockMovement from "../models/stockMovement.model";
+import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
 
 export class InventoryBatchService {
   async createBatch(data: {
@@ -15,6 +16,7 @@ export class InventoryBatchService {
     notes?: string;
     receivedBy: string;
   }): Promise<IInventoryBatch> {
+    await assertInventoryPeriodOpen(data.receivedAt ?? new Date());
     return withMongoTransaction(async (session) => {
       const medicineQuery = Medicine.findById(data.medicineId);
       if (session) medicineQuery.session(session);

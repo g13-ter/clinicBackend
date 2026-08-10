@@ -18,6 +18,9 @@ const run = async (): Promise<void> => {
     fail("NODE_ENV must be production");
   }
   validateEnv();
+  if (process.env.MONGO_TRANSACTIONS_ENABLED !== "true") {
+    fail("MONGO_TRANSACTIONS_ENABLED must be explicitly set to true");
+  }
   if (!process.env.RESEND_API_KEY) fail("RESEND_API_KEY is required");
   if (!process.env.EMAIL_FROM || process.env.EMAIL_FROM.includes("yourdomain.com")) {
     fail("EMAIL_FROM must use the verified production mail domain");

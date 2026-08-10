@@ -152,6 +152,21 @@ describe("RBAC matrix — admin-only routes", () => {
 });
 
 describe("RBAC — invalid token payload", () => {
+  it("allows analytics only for doctors and nurses", async () => {
+    for (const token of [doctorToken, nurseToken]) {
+      const response = await request(app)
+        .get("/api/dashboard/analytics")
+        .set("Authorization", `Bearer ${token}`);
+      expect(response.status).toBe(200);
+    }
+    for (const token of [adminToken, staffToken]) {
+      const response = await request(app)
+        .get("/api/dashboard/analytics")
+        .set("Authorization", `Bearer ${token}`);
+      expect(response.status).toBe(403);
+    }
+  });
+
   it("rejects a token whose role claim is not in the allowed enum", async () => {
     // Invalid tokens must fail before role checks.
     const res = await request(app)

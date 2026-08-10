@@ -8,6 +8,9 @@ import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { withMongoTransaction } from "../utils/transaction";
 import StockMovement from "../models/stockMovement.model";
+import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
+import Patient from "../models/patient.model";
+import { CURRENT_CONSENT_VERSION } from "../config/consent";
 
 export interface StockChange {
   medicine: IMedicine;
@@ -19,7 +22,26 @@ export class MedicalHistoryService {
     data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string }[] }
   ): Promise<{ entry: IMedicalHistory; stockChanges: StockChange[] }> {
     try {
+      if ((data.prescribedItems?.length ?? 0) > 0) {
+        await assertInventoryPeriodOpen(new Date());
+      }
       return await withMongoTransaction(async (session) => {
+        const patientQuery = Patient.findById(data.patientId);
+        if (session) patientQuery.session(session);
+        const patient = await patientQuery;
+        if (!patient) throw new AppError("Patient not found", 404);
+        const visitForConsentQuery = data.visitId ? ClinicVisit.findById(data.visitId) : null;
+        if (session && visitForConsentQuery) visitForConsentQuery.session(session);
+        const visitForConsent = visitForConsentQuery ? await visitForConsentQuery : null;
+        if (!visitForConsent?.isEmergency && (
+          patient.consents?.treatment !== true ||
+          patient.consents?.version !== CURRENT_CONSENT_VERSION
+        )) {
+          throw new AppError("Current treatment consent is required before saving consultation care", 409);
+        }
+        if ((data.prescribedItems?.length ?? 0) > 0 && !visitForConsent?.isEmergency && patient.consents?.medicineAdministration !== true) {
+          throw new AppError("Medicine-administration consent is required before dispensing", 409);
+        }
         if (data.visitId) {
           const existingQuery = MedicalHistory.findOne({ visitId: data.visitId });
           if (session) existingQuery.session(session);
@@ -68,6 +90,9 @@ export class MedicalHistoryService {
           if (!pair.medicine) {
             throw new AppError(`Medicine not found: ${pair.requested.medicineId}`, 404);
           }
+          if (!pair.medicine.isActive) {
+            throw new AppError(`Medicine "${pair.medicine.name}" has been discontinued`, 409);
+          }
           const batchQuery = InventoryBatch.find({
             medicineId: pair.medicine._id,
             quantityRemaining: { $gt: 0 },
@@ -75,8 +100,10 @@ export class MedicalHistoryService {
           if (session) batchQuery.session(session);
           const batches = await batchQuery;
           const totalBatchQuantity = batches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
-          const legacyQuantity = Math.max(0, pair.medicine.quantity - totalBatchQuantity);
           const now = new Date();
+          const legacyQuantity = pair.medicine.expiryDate && pair.medicine.expiryDate < now
+            ? 0
+            : Math.max(0, pair.medicine.quantity - totalBatchQuantity);
           const eligibleBatches = batches.filter(
             (batch) => !batch.expiryDate || batch.expiryDate >= now,
           );
@@ -205,13 +232,29 @@ export class MedicalHistoryService {
 
   async getHistoryByPatient(
     patientId: string,
-    { limit, skip }: PaginationParams
+    { limit, skip }: PaginationParams,
+    doctorId?: string,
   ): Promise<{ history: IMedicalHistory[]; total: number }> {
     if (!patientId) {
       throw new AppError("Patient ID is required", 400);
     }
 
-    const filter = { patientId };
+    const hasCurrentAssignment = doctorId
+      ? Boolean(await ClinicVisit.exists({
+          patientId,
+          assignedDoctorId: doctorId,
+          isActive: true,
+          status: { $in: ["ready_for_doctor", "in_consultation", "paused"] },
+        })) || Boolean(await Appointment.exists({
+          patientId,
+          doctorId,
+          status: { $in: ["pending", "confirmed", "checked_in"] },
+        }))
+      : true;
+    const filter = {
+      patientId,
+      ...(doctorId && !hasCurrentAssignment ? { recordedBy: doctorId } : {}),
+    };
 
     const [history, total] = await Promise.all([
       MedicalHistory.find(filter)
@@ -227,7 +270,7 @@ export class MedicalHistoryService {
     return { history, total };
   }
 
-  async getHistoryById(id: string): Promise<IMedicalHistory> {
+  async getHistoryById(id: string, doctorId?: string): Promise<IMedicalHistory> {
     const entry = await MedicalHistory.findById(id)
       .populate("patientId")
       .populate("visitId", "visitDate complaint")
@@ -238,17 +281,33 @@ export class MedicalHistoryService {
       throw new AppError("Medical history entry not found", 404);
     }
 
+    if (doctorId) {
+      const recorder = entry.recordedBy as unknown as { _id?: unknown } | undefined;
+      const patient = entry.patientId as unknown as { _id?: unknown };
+      const patientId = String(patient?._id ?? entry.patientId);
+      const ownsEntry = String(recorder?._id ?? entry.recordedBy) === doctorId;
+      const currentlyAssigned = await ClinicVisit.exists({
+        patientId,
+        assignedDoctorId: doctorId,
+        isActive: true,
+        status: { $in: ["ready_for_doctor", "in_consultation", "paused"] },
+      });
+      if (!ownsEntry && !currentlyAssigned) {
+        throw new AppError("You do not have an active care assignment for this record", 403);
+      }
+    }
+
     return entry;
   }
 
-  async updateMedicalHistory(id: string, data: Partial<IMedicalHistory>): Promise<{ before: IMedicalHistory; after: IMedicalHistory }> {
-    const before = await MedicalHistory.findById(id);
+  async updateMedicalHistory(id: string, data: Partial<IMedicalHistory>, doctorId: string): Promise<{ before: IMedicalHistory; after: IMedicalHistory }> {
+    const before = await MedicalHistory.findOne({ _id: id, recordedBy: doctorId });
 
     if (!before) {
-      throw new AppError("Medical history entry not found", 404);
+      throw new AppError("You can only update medical history entries you recorded", 403);
     }
 
-    const after = await MedicalHistory.findByIdAndUpdate(id, data, {
+    const after = await MedicalHistory.findOneAndUpdate({ _id: id, recordedBy: doctorId }, data, {
       returnDocument: "after",
       runValidators: true,
     });

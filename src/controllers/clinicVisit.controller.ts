@@ -5,8 +5,11 @@ import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import { AppError } from "../middleware/error.middleware";
 import { buildReferralDocx } from "../utils/referralDocx";
+import { PatientService } from "../services/patient.service";
+import { CURRENT_CONSENT_VERSION } from "../config/consent";
 
 const clinicVisitService = new ClinicVisitService();
+const patientService = new PatientService();
 
 const visitFieldsByRole = {
   staff: ["complaint", "isEmergency", "emergencyDetails"],
@@ -69,6 +72,16 @@ const restrictVisitFields = (
     Object.entries(data).filter(([field]) => allowed.has(field)),
   );
 };
+
+const toStaffVisit = (visit: { _id: unknown; patientId: unknown; appointmentId?: unknown; assignedDoctorId?: unknown; visitDate: Date; status: string; isActive: boolean }) => ({
+  _id: visit._id,
+  patientId: visit.patientId,
+  appointmentId: visit.appointmentId,
+  assignedDoctorId: visit.assignedDoctorId,
+  visitDate: visit.visitDate,
+  status: visit.status,
+  isActive: visit.isActive,
+});
 
 // GET TODAY COUNT
 export const getTodayVisitCount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -147,20 +160,10 @@ export const updateVisitStatus = async (req: Request, res: Response, next: NextF
     const id = req.params.id as string;
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
-    if (actor.role === "doctor" && req.body.status === "in_consultation") {
-      const visit = await clinicVisitService.getVisitById(id);
-      if (!visit.readyForDoctor && !visit.isEmergency) {
-        throw new AppError(
-          "A nurse must record triage and mark the student ready before the doctor starts consultation",
-          409,
-        );
-      }
-      const assignedDoctor = visit.assignedDoctorId as unknown as { _id?: unknown } | undefined;
-      if (assignedDoctor?._id && String(assignedDoctor._id) !== userId) {
-        throw new AppError("This visit is assigned to another doctor", 403);
-      }
+    if (actor.role !== "nurse" && actor.role !== "doctor") {
+      throw new AppError("Only nurses and doctors can update visit status", 403);
     }
-    const { before, after } = await clinicVisitService.updateStatus(id, req.body, userId);
+    const { before, after } = await clinicVisitService.updateStatus(id, req.body, userId, actor.role);
     logAudit({ action: "update", resource: "ClinicVisit", resourceId: id, performedBy: userId, before: before.toObject(), after: after.toObject(), method: req.method, path: req.originalUrl });
     res.status(200).json({ success: true, message: "Visit status updated successfully", data: after });
   } catch (error) {
@@ -174,10 +177,20 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
     const { patientId, ...visitData } = req.body;
-    if (actor.role === "admin") {
+    if (actor.role === "admin" || actor.role === "superadmin") {
       throw new AppError("Administrators cannot create clinical visits", 403);
     }
     const permittedVisitData = restrictVisitFields(actor.role, visitData);
+    if (!permittedVisitData.isEmergency) {
+      const patient = await patientService.getPatientById(patientId);
+      if (
+        patient.consents?.treatment !== true ||
+        patient.consents?.dataPrivacy !== true ||
+        patient.consents?.version !== CURRENT_CONSENT_VERSION
+      ) {
+        throw new AppError("Current treatment and data-privacy consent must be recorded before a non-emergency visit", 409);
+      }
+    }
     if (permittedVisitData.heightCm && permittedVisitData.weightKg) {
       permittedVisitData.bmi = Number((
         Number(permittedVisitData.weightKg) /
@@ -201,7 +214,11 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
       path: req.originalUrl,
     });
 
-    res.status(201).json({ success: true, message: "Clinic visit created successfully", data: visit });
+    res.status(201).json({
+      success: true,
+      message: "Clinic visit created successfully",
+      data: actor.role === "staff" ? toStaffVisit(visit) : visit,
+    });
   } catch (error) {
     next(error);
   }
@@ -214,7 +231,13 @@ export const getVisitsByPatient = async (req: Request, res: Response, next: Next
     const search = req.query.search as string | undefined;
     const pagination = getPaginationParams(req.query);
 
-    const { visits, total } = await clinicVisitService.getVisitsByPatient(patientId, pagination, search);
+    const actor = getAuthenticatedUser(req);
+    const { visits, total } = await clinicVisitService.getVisitsByPatient(
+      patientId,
+      pagination,
+      search,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
 
     res.status(200).json({
       success: true,
@@ -231,7 +254,11 @@ export const getVisitsByPatient = async (req: Request, res: Response, next: Next
 export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const visit = await clinicVisitService.getVisitById(id);
+    const actor = getAuthenticatedUser(req);
+    const visit = await clinicVisitService.getVisitById(
+      id,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
 
     res.status(200).json({ success: true, message: "Clinic visit retrieved successfully", data: visit });
   } catch (error) {
@@ -247,6 +274,9 @@ export const updateVisit = async (req: Request, res: Response, next: NextFunctio
     const userId = actor.id;
     if (actor.role !== "nurse" && actor.role !== "doctor") {
       throw new AppError("Only nurses and doctors can update clinical visits", 403);
+    }
+    if (actor.role === "doctor") {
+      await clinicVisitService.getVisitById(id, actor.id);
     }
     const visitData = restrictVisitFields(actor.role, { ...req.body });
     if (visitData.heightCm && visitData.weightKg) {
@@ -295,7 +325,11 @@ export const archiveVisit = async (req: Request, res: Response, next: NextFuncti
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Clinic visit archived successfully", data: after });
+    res.status(200).json({
+      success: true,
+      message: "Clinic visit archived successfully",
+      data: { _id: after._id, status: after.status, isActive: after.isActive },
+    });
   } catch (error) {
     next(error);
   }
@@ -303,7 +337,11 @@ export const archiveVisit = async (req: Request, res: Response, next: NextFuncti
 
 export const downloadReferralForm = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const visit = await clinicVisitService.getVisitById(req.params.id as string);
+    const actor = getAuthenticatedUser(req);
+    const visit = await clinicVisitService.getVisitById(
+      req.params.id as string,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
     if (visit.status !== "referred" || !visit.referralFacility || !visit.referralReason) {
       throw new AppError("A referral form is available only after the visit is referred", 409);
     }

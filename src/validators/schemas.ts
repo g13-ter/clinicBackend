@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { USER_ROLES } from "../types/roles";
 
 
 // ===== AUTH =====
@@ -6,9 +7,9 @@ import { z } from "zod";
 export const registerSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Must be a valid email"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["admin", "doctor", "nurse", "staff"], {
-    message: "Role must be admin, doctor, nurse, or staff"
+  password: z.string().min(12, "Password must be at least 12 characters"),
+  role: z.enum(USER_ROLES, {
+    message: "Role must be superadmin, admin, doctor, nurse, or staff"
   })
 });
 
@@ -23,8 +24,8 @@ export const loginSchema = z.object({
 export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
-  password: z.string().min(6).optional(),
-    role: z.enum(["admin", "doctor", "nurse", "staff"]).optional(),
+  password: z.string().min(12, "Password must be at least 12 characters").optional(),
+    role: z.enum(USER_ROLES).optional(),
     // Deactivation uses DELETE so it can enforce self/last-admin safeguards.
     // PUT may only reactivate an existing account.
     isActive: z.literal(true).optional(),
@@ -85,6 +86,15 @@ export const updateClinicalProfileSchema = z.object({
   verified: z.boolean().optional(),
 });
 
+export const updateOwnProfileSchema = z.object({
+  name: z.string().min(1).optional(),
+  email: z.string().email().optional(),
+  currentPassword: z.string().min(1, "Current password is required"),
+  newPassword: z.string().min(12, "New password must be at least 12 characters").optional(),
+}).refine((value) => value.name !== undefined || value.email !== undefined || value.newPassword !== undefined, {
+  message: "Provide at least one profile change",
+});
+
 export const advanceSchoolYearSchema = z.object({
   schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
   graduatingYearLevel: z.number().int().min(1).max(10).default(4),
@@ -104,7 +114,7 @@ const bloodPressureSchema = z
       systolic > diastolic;
   }, "Blood pressure is outside the supported clinical range");
 
-export const createVisitSchema = z.object({
+const visitSchemaBase = z.object({
   patientId: z.string().min(1, "Patient ID is required"),
   complaint: z.string().min(1, "Complaint is required"),
   treatment: z.string().optional(),
@@ -124,9 +134,28 @@ export const createVisitSchema = z.object({
   emergencyDetails: z.string().optional(),
 });
 
-export const updateVisitSchema = createVisitSchema.partial().omit({
-  patientId: true
-});
+const requireEmergencyDetails = (
+  value: {
+    isEmergency?: boolean | undefined;
+    emergencyDetails?: string | undefined;
+  },
+  context: z.RefinementCtx,
+) => {
+  if (value.isEmergency && !value.emergencyDetails?.trim()) {
+    context.addIssue({
+      code: "custom",
+      path: ["emergencyDetails"],
+      message: "Emergency details are required when care proceeds under the emergency exception",
+    });
+  }
+};
+
+export const createVisitSchema = visitSchemaBase.superRefine(requireEmergencyDetails);
+
+export const updateVisitSchema = visitSchemaBase
+  .omit({ patientId: true })
+  .partial()
+  .superRefine(requireEmergencyDetails);
 
 export const updateVisitStatusSchema = z.object({
   status: z.enum(["triage", "ready_for_doctor", "in_consultation", "paused", "completed", "cancelled", "referred"]),
@@ -223,18 +252,45 @@ export const createMedicineSchema = z.object({
   expiryDate: z.coerce.date().optional(),
   lowStockThreshold: z.number().int().min(0).optional(),
   supplier: z.string().optional(),
-  dateReceived: z.coerce.date().optional()
+  dateReceived: z.coerce.date().optional(),
+  batchNumber: z.string().trim().min(1, "Batch number is required").optional(),
+  }).superRefine((value, context) => {
+    if (value.quantity > 0 && !value.batchNumber) {
+      context.addIssue({ code: "custom", path: ["batchNumber"], message: "Batch number is required for initial stock" });
+    }
+    if (value.quantity > 0 && !value.expiryDate) {
+      context.addIssue({ code: "custom", path: ["expiryDate"], message: "Expiry date is required for initial stock" });
+    }
+  });
+  
+export const updateMedicineSchema = z.object({
+  name: z.string().min(1, "Medicine name is required").optional(),
+  category: z.string().optional(),
+  unit: z.string().min(1, "Unit is required").optional(),
+  lowStockThreshold: z.number().int().min(0).optional(),
+  supplier: z.string().optional(),
 });
-
-export const updateMedicineSchema = createMedicineSchema.partial();
 
 export const createInventoryBatchSchema = z.object({
   batchNumber: z.string().min(1, "Batch number is required"),
   quantityReceived: z.number().int().min(1, "Quantity received must be at least 1"),
-  expiryDate: z.coerce.date().optional(),
+    expiryDate: z.coerce.date({ error: "Expiry date is required" }),
   supplier: z.string().optional(),
   receivedAt: z.coerce.date().optional(),
   notes: z.string().optional(),
+});
+
+export const monthlyInventoryPeriodSchema = z.object({
+  month: z.number().int().min(1).max(12),
+  year: z.number().int().min(2000).max(9999),
+});
+
+export const monthlyInventoryDraftSchema = z.object({
+  items: z.array(z.object({
+    medicineId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Invalid medicine ID"),
+    physicalCount: z.number().int().min(0),
+    varianceNotes: z.string().trim().max(1000).optional(),
+  })),
 });
 
 
@@ -275,7 +331,7 @@ export const cancelPurchaseRequestSchema = z.object({
 export const receivePurchaseRequestSchema = z.object({
   batchNumber: z.string().min(1),
   quantityReceived: z.number().int().min(1),
-  expiryDate: z.coerce.date().optional(),
+  expiryDate: z.coerce.date({ error: "Expiry date is required" }),
   supplier: z.string().optional(),
 });
 

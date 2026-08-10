@@ -6,7 +6,9 @@ import {
   getMedicineById,
   updateMedicine,
   getLowStockMedicines,
-  getExpiringMedicines
+  getExpiringMedicines,
+  getPrescriptionMedicines,
+  deleteMedicine,
 } from "../controllers/medicine.controller";
 
 import { protect } from "../middleware/auth.middleware";
@@ -28,11 +30,11 @@ router.post(
 );
 
 
-// Nurse + Doctor + Admin - low stock alert list
+// Nurse-only inventory monitoring.
 router.get(
   "/low-stock",
   protect,
-  allowRoles("nurse", "doctor", "admin"),
+  allowRoles("nurse"),
   getLowStockMedicines
 );
 
@@ -41,19 +43,22 @@ router.get(
 router.get(
   "/expiring",
   protect,
-  allowRoles("nurse", "doctor", "admin"),
+  allowRoles("nurse"),
   getExpiringMedicines
 );
 
 router.post("/:id/batches", protect, allowRoles("nurse"), validateBody(createInventoryBatchSchema), createInventoryBatch);
-router.get("/:id/batches", protect, allowRoles("nurse", "doctor", "admin"), getInventoryBatches);
+router.get("/:id/batches", protect, allowRoles("nurse"), getInventoryBatches);
+
+// Minimal, read-only medicine data for the prescription workflow.
+router.get("/prescription-search", protect, allowRoles("doctor", "nurse"), getPrescriptionMedicines);
 
 
 // Nurse + Doctor - view all medicines
 router.get(
   "/",
   protect,
-  allowRoles("admin", "nurse", "doctor"),
+  allowRoles("nurse"),
   getMedicines
 );
 
@@ -62,7 +67,7 @@ router.get(
 router.get(
   "/:id",
   protect,
-  allowRoles("nurse", "doctor"),
+  allowRoles("nurse"),
   getMedicineById
 );
 
@@ -75,5 +80,7 @@ router.put(
   validateBody(updateMedicineSchema),
   updateMedicine
 );
+
+router.delete("/:id", protect, allowRoles("nurse"), deleteMedicine);
 
 export default router;

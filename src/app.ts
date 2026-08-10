@@ -16,6 +16,7 @@ import { generalLimiter } from "./middleware/rateLimit.middleware";
 import { AppError, notFoundHandler, errorHandler } from "./middleware/error.middleware";
 import auditLogRoutes from "./routes/auditLog.routes";
 import reportRoutes from "./routes/report.routes";
+import monthlyInventoryRoutes from "./routes/monthlyInventory.routes";
 import purchaseRequestRoutes from "./routes/purchaseRequest.routes";
 import internalRoutes from "./routes/internal.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
@@ -77,6 +78,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Clinical API responses must never be retained by browsers or shared proxies.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, private, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
+
 // Public health check for load balancers and CI.
 app.use("/api/health", healthRoutes);
 
@@ -107,6 +116,7 @@ app.use("/api/medicines", medicineRoutes);
 app.use("/api/audit-logs", auditLogRoutes);
 
 app.use("/api/reports", reportRoutes);
+app.use("/api/monthly-inventory", monthlyInventoryRoutes);
 
 app.use("/api/purchase-requests", purchaseRequestRoutes);
 

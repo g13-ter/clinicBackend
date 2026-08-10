@@ -11,9 +11,15 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
     const stats = await dashboardService.getStats(
       actor.role === "doctor" ? actor.id : undefined,
     );
-    if (actor.role === "admin") {
-      // Administrators receive operational aggregates, never identifiable case details.
+    if (actor.role === "admin" || actor.role === "staff") {
+      // Non-clinical dashboards receive only operational workload data, not analytics or inventory data.
       stats.recentCases = [];
+      stats.commonComplaints = [];
+      stats.monthlyVisits = [];
+      stats.monthlyConsultations = 0;
+      stats.lowStockCount = 0;
+      stats.outOfStockCount = 0;
+      stats.expiredCount = 0;
     }
     res.status(200).json({ success: true, message: "Dashboard stats retrieved successfully", data: stats });
   } catch (error) {

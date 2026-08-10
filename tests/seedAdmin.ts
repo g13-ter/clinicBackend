@@ -9,6 +9,7 @@ dotenv.config();
 
 const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@clinic.com";
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "admin123";
+const ADMIN_ROLE = process.env.SEED_ADMIN_ROLE === "superadmin" ? "superadmin" : "admin";
 
 const seedAdmin = async () => {
 
@@ -22,7 +23,7 @@ const seedAdmin = async () => {
   const existing = await User.findOne({ email: ADMIN_EMAIL });
 
   if (existing) {
-    console.log("Admin already exists, nothing to do.");
+    console.log("Administrative account already exists, nothing to do.");
     await mongoose.connection.close();
     return;
   }
@@ -31,13 +32,13 @@ const seedAdmin = async () => {
   const hashedPassword = await bcrypt.hash(ADMIN_PASSWORD, salt);
 
   await User.create({
-    name: "Admin User",
+    name: ADMIN_ROLE === "superadmin" ? "Super Admin User" : "Admin User",
     email: ADMIN_EMAIL,
     password: hashedPassword,
-    role: "admin"
+    role: ADMIN_ROLE,
   });
 
-  console.log(`Admin created: ${ADMIN_EMAIL}`);
+  console.log(`${ADMIN_ROLE === "superadmin" ? "Super Admin" : "Admin"} created: ${ADMIN_EMAIL}`);
 
   await mongoose.connection.close();
 

@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "../src/app";
 import User from "../src/models/user.model";
 import { createTestUserAndLogin, deleteTestUser, TEST_PASSWORD } from "./helpers";
+import AuditLog from "../src/models/auditLog.model";
 
 dotenv.config();
 
@@ -11,6 +12,9 @@ let adminToken: string;
 let adminId: string;
 let nurseToken: string;
 let nurseId: string;
+let superAdminToken: string;
+let superAdminId: string;
+let managedAdminId: string | null = null;
 
 // a user created DURING a test, that we'll clean up afterward
 let createdUserId: string | null = null;
@@ -30,6 +34,10 @@ beforeAll(async () => {
   nurseToken = nurse.token;
   nurseId = nurse.userId;
 
+  const superAdmin = await createTestUserAndLogin("superadmin", "users_superadmin");
+  superAdminToken = superAdmin.token;
+  superAdminId = superAdmin.userId;
+
 });
 
 
@@ -37,6 +45,8 @@ afterAll(async () => {
 
   await deleteTestUser(adminId);
   await deleteTestUser(nurseId);
+  await deleteTestUser(superAdminId);
+  if (managedAdminId) await deleteTestUser(managedAdminId);
 
   if (createdUserId) {
     await deleteTestUser(createdUserId);
@@ -92,6 +102,21 @@ describe("Users - Admin only access", () => {
 
   });
 
+  it("rejects duplicate emails regardless of letter case", async () => {
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "TEST Duplicate Staff",
+        email: createdUserEmail?.toUpperCase(),
+        password: TEST_PASSWORD,
+        role: "staff",
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toBe("Email already in use");
+  });
+
   it("deactivates accounts without deleting history and revokes their sessions", async () => {
     expect(createdUserId).toBeTruthy();
     expect(createdUserEmail).toBeTruthy();
@@ -114,6 +139,12 @@ describe("Users - Admin only access", () => {
     const preserved = await User.findById(createdUserId).lean();
     expect(preserved).toBeTruthy();
     expect(preserved?.isActive).toBe(false);
+
+    const inactiveList = await request(app)
+      .get("/api/users?limit=200")
+      .set("Authorization", `Bearer ${adminToken}`);
+    const inactiveAccount = inactiveList.body.data.find((user: { _id: string }) => user._id === createdUserId);
+    expect(inactiveAccount.deactivatedBy.name).toBeTruthy();
 
     const reactivate = await request(app)
       .put(`/api/users/${createdUserId}`)
@@ -153,7 +184,81 @@ describe("Users - Admin only access", () => {
 
     // make sure passwords are never sent back, even to an admin
     expect(res.body.data[0].password).toBeUndefined();
+    expect(res.body.data.some((user: { role: string }) => user.role === "superadmin")).toBe(false);
+    expect(res.body.data.some((user: { role: string }) => user.role === "admin")).toBe(false);
 
+  });
+
+  it("prevents regular admins from seeing or creating privileged accounts", async () => {
+    const view = await request(app)
+      .get(`/api/users/${superAdminId}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(view.status).toBe(403);
+
+    const create = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({
+        name: "TEST Blocked Admin",
+        email: `TEST_blocked_admin_${Date.now()}@clinic.com`,
+        password: TEST_PASSWORD,
+        role: "admin",
+      });
+    expect(create.status).toBe(403);
+  });
+
+  it("allows Super Admin to manage administrative accounts", async () => {
+    const create = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({
+        name: "TEST Managed Admin",
+        email: `TEST_managed_admin_${Date.now()}@clinic.com`,
+        password: TEST_PASSWORD,
+        role: "admin",
+      });
+    expect(create.status).toBe(201);
+    managedAdminId = create.body.data._id;
+
+    const deactivate = await request(app)
+      .delete(`/api/users/${managedAdminId}`)
+      .set("Authorization", `Bearer ${superAdminToken}`);
+    expect(deactivate.status).toBe(200);
+    expect(deactivate.body.data.isActive).toBe(false);
+    expect(deactivate.body.data.deactivatedAt).toBeTruthy();
+    expect(String(deactivate.body.data.deactivatedBy)).toBe(superAdminId);
+
+    const reactivate = await request(app)
+      .put(`/api/users/${managedAdminId}`)
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({ isActive: true });
+    expect(reactivate.status).toBe(200);
+    expect(reactivate.body.data.isActive).toBe(true);
+  });
+
+  it("prevents and audits Super Admin self-deactivation attempts", async () => {
+    const deactivate = await request(app)
+      .delete(`/api/users/${superAdminId}`)
+      .set("Authorization", `Bearer ${superAdminToken}`);
+    expect(deactivate.status).toBe(400);
+
+    const attempt = await AuditLog.findOne({
+      action: "deactivate",
+      resource: "User",
+      resourceId: superAdminId,
+      performedBy: superAdminId,
+      "changes.after.successful": false,
+    });
+    expect(attempt).toBeTruthy();
+  });
+
+  it("allows Super Admin to see all account roles", async () => {
+    const res = await request(app)
+      .get("/api/users?limit=200")
+      .set("Authorization", `Bearer ${superAdminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.some((user: { _id: string }) => user._id === superAdminId)).toBe(true);
+    expect(res.body.data.some((user: { role: string }) => user.role === "admin")).toBe(true);
   });
 
 

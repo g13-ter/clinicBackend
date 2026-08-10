@@ -23,8 +23,9 @@ export const PERMISSIONS = {
   },
   medicines: {
     create: ["nurse"] as const satisfies readonly UserRole[],
-    list: ["nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
-    lowStock: ["nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
+    list: ["nurse"] as const satisfies readonly UserRole[],
+    prescriptionSearch: ["nurse", "doctor"] as const satisfies readonly UserRole[],
+    lowStock: ["nurse"] as const satisfies readonly UserRole[],
     update: ["nurse"] as const satisfies readonly UserRole[],
     delete: ["nurse"] as const satisfies readonly UserRole[],
   },
@@ -54,20 +55,24 @@ export const PERMISSIONS = {
     generateCertificate: ["doctor"] as const satisfies readonly UserRole[],
   },
   users: {
-    manage: ["admin"] as const satisfies readonly UserRole[],
+    manage: ["admin", "superadmin"] as const satisfies readonly UserRole[],
+    managePrivileged: ["superadmin"] as const satisfies readonly UserRole[],
     listDoctors: ["staff", "nurse", "doctor", "admin"] as const satisfies readonly UserRole[],
   },
   auditLogs: {
-    view: ["admin"] as const satisfies readonly UserRole[],
+    view: ["admin", "superadmin"] as const satisfies readonly UserRole[],
   },
   reports: {
-    generate: ["admin", "nurse"] as const satisfies readonly UserRole[],
+    generate: ["doctor", "nurse"] as const satisfies readonly UserRole[],
+  },
+  analytics: {
+    view: ["doctor", "nurse"] as const satisfies readonly UserRole[],
   },
   dashboard: {
     view: ["admin", "doctor", "nurse", "staff"] as const satisfies readonly UserRole[],
   },
   systemSettings: {
-    manage: ["admin"] as const satisfies readonly UserRole[],
+    manage: ["admin", "superadmin"] as const satisfies readonly UserRole[],
   },
 } as const;
 

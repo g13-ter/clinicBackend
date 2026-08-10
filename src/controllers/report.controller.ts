@@ -3,9 +3,11 @@ import { ReportService } from "../services/report.service";
 import { buildReportDocx } from "../utils/reportDocx";
 import { buildAnnualMedicationXls } from "../utils/annualMedicationXls";
 import { AppError } from "../middleware/error.middleware";
-import { getAuthenticatedUser } from "../utils/authUser";
 
 const reportService = new ReportService();
+
+type VisitReportPeriod = "daily" | "weekly" | "monthly" | "yearly" | "custom";
+const visitReportPeriods: readonly VisitReportPeriod[] = ["daily", "weekly", "monthly", "yearly", "custom"];
 
 type ExportType =
   | "inventory-current"
@@ -36,18 +38,6 @@ const exportTypes: readonly ExportType[] = [
   "vaccination-status",
 ];
 
-const ADMIN_SAFE_EXPORT_TYPES: readonly ExportType[] = [
-  "inventory-current",
-  "inventory-movements",
-  "inventory-batches",
-  "inventory-reorder",
-  "medication-consumption",
-  "medication-inventory",
-  "inventory-stock",
-  "inventory-usage",
-  "inventory-expiry",
-  "disease-trends",
-];
 
 const getDefaultMonthRange = (): { startDate: Date; endDate: Date } => {
   const now = new Date();
@@ -116,8 +106,12 @@ export const getClinicSummaryReport = async (
       req.query.endDate as string | undefined,
     );
     const stats = await reportService.getClinicSummary(startDate, endDate);
-    const buffer = await buildReportDocx(stats);
-    const filename = `Clinic_Report_${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}.docx`;
+    const requestedPeriod = req.query.period as VisitReportPeriod | undefined;
+    const period = requestedPeriod && visitReportPeriods.includes(requestedPeriod)
+      ? requestedPeriod
+      : "custom";
+    const buffer = await buildReportDocx(stats, period);
+    const filename = `${period === "custom" ? "Clinic" : period[0]!.toUpperCase() + period.slice(1)}_Medical_Case_Report_${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}.docx`;
 
     res.setHeader(
       "Content-Type",
@@ -158,15 +152,6 @@ export const exportReportCsv = async (
     const type = req.params.type as ExportType;
     if (!exportTypes.includes(type)) {
       throw new AppError("Unsupported report type", 400);
-    }
-    if (
-      getAuthenticatedUser(req).role === "admin" &&
-      !ADMIN_SAFE_EXPORT_TYPES.includes(type)
-    ) {
-      throw new AppError(
-        "This report contains confidential student health information and requires a clinical role",
-        403,
-      );
     }
 
     const { startDate, endDate } = getReportRange(

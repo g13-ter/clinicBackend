@@ -9,6 +9,9 @@ export interface IMedicine extends Document {
   lowStockThreshold: number;
   supplier?: string;
   dateReceived?: Date;
+  isActive: boolean;
+  discontinuedAt?: Date;
+  discontinuedBy?: mongoose.Types.ObjectId;
   lastUpdatedBy: mongoose.Types.ObjectId;
 }
 
@@ -52,6 +55,19 @@ const MedicineSchema = new Schema<IMedicine>(
     dateReceived: {
       type: Date,
       default: Date.now,
+    },
+
+    isActive: {
+      type: Boolean,
+      default: true,
+      index: true,
+    },
+
+    discontinuedAt: Date,
+
+    discontinuedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
     },
 
     lastUpdatedBy: {

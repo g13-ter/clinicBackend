@@ -5,6 +5,7 @@ import app from "../src/app";
 import Medicine from "../src/models/medicine.model";
 import PurchaseRequest from "../src/models/purchaseRequest.model";
 import StockMovement from "../src/models/stockMovement.model";
+import InventoryBatch from "../src/models/inventoryBatch.model";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 
 dotenv.config();
@@ -46,6 +47,7 @@ afterAll(async () => {
   await deleteTestUser(staffId);
 
   if (createdMedicineId) {
+    await InventoryBatch.deleteMany({ medicineId: createdMedicineId });
     await StockMovement.deleteMany({ medicineId: createdMedicineId });
     await Medicine.findByIdAndDelete(createdMedicineId);
   }
@@ -69,7 +71,9 @@ describe("Medicine Inventory - Create (nurse only)", () => {
         name: `TEST Paracetamol ${Date.now()}`,
         quantity: 5,
         unit: "tablets",
-        lowStockThreshold: 10
+        lowStockThreshold: 10,
+        batchNumber: "TEST-INITIAL-BATCH",
+        dateReceived: new Date().toISOString(),
       });
 
     expect(res.status).toBe(201);
@@ -80,6 +84,9 @@ describe("Medicine Inventory - Create (nurse only)", () => {
       type: "initial_stock",
     });
     expect(initialMovement?.quantityChange).toBe(5);
+    const initialBatch = await InventoryBatch.findOne({ medicineId: createdMedicineId });
+    expect(initialBatch?.batchNumber).toBe("TEST-INITIAL-BATCH");
+    expect(String(initialMovement?.batchId)).toBe(String(initialBatch?._id));
 
   });
 
@@ -120,10 +127,10 @@ describe("Medicine Inventory - Create (nurse only)", () => {
 
 describe("Medicine Inventory - Low stock detection", () => {
 
-  it("flags the medicine as low stock in the full list", async () => {
+  it("gives doctors only the read-only prescription medicine view", async () => {
 
     const res = await request(app)
-      .get("/api/medicines")
+      .get("/api/medicines/prescription-search")
       .set("Authorization", `Bearer ${doctorToken}`);
 
     expect(res.status).toBe(200);
@@ -134,6 +141,13 @@ describe("Medicine Inventory - Low stock detection", () => {
 
     expect(found).toBeDefined();
     expect(found.isLowStock).toBe(true);
+    expect(found.supplier).toBeUndefined();
+    expect(found.expiryDate).toBeUndefined();
+
+    const inventoryResponse = await request(app)
+      .get("/api/medicines")
+      .set("Authorization", `Bearer ${doctorToken}`);
+    expect(inventoryResponse.status).toBe(403);
 
   });
 

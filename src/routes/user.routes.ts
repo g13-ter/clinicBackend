@@ -6,6 +6,7 @@ import {
   getUserById,
   getDoctors,
   getCurrentUserProfile,
+  updateCurrentUserProfile,
   updateUser,
   deleteUser,
 } from "../controllers/user.controller";
@@ -13,7 +14,7 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { registerSchema, updateUserSchema } from "../validators/schemas";
+import { registerSchema, updateOwnProfileSchema, updateUserSchema } from "../validators/schemas";
 
 const router = express.Router();
 
@@ -24,6 +25,13 @@ router.get(
   protect,
   allowRoles("staff", "nurse", "doctor", "admin"),
   getDoctors
+);
+
+router.put(
+  "/me",
+  protect,
+  validateBody(updateOwnProfileSchema),
+  updateCurrentUserProfile,
 );
 
 router.get(
@@ -38,7 +46,7 @@ router.get(
 router.get(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   getUsers
 );
 
@@ -48,7 +56,7 @@ router.get(
 router.get(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   getUserById
 );
 
@@ -58,7 +66,7 @@ router.get(
 router.post(
   "/",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(registerSchema),
   createUser
 );
@@ -69,7 +77,7 @@ router.post(
 router.put(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   validateBody(updateUserSchema),
   updateUser
 );
@@ -80,7 +88,7 @@ router.put(
 router.delete(
   "/:id",
   protect,
-  allowRoles("admin"),
+  allowRoles("admin", "superadmin"),
   deleteUser
 );
 

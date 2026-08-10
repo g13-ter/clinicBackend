@@ -5,6 +5,7 @@ import { PaginationParams } from "../utils/pagination";
 import { Types } from "mongoose";
 import InventoryBatch from "../models/inventoryBatch.model";
 import StockMovement from "../models/stockMovement.model";
+import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
 import { withMongoTransaction } from "../utils/transaction";
 
 interface CreatePurchaseRequestInput {
@@ -188,6 +189,7 @@ export class PurchaseRequestService {
       receivedBy: Types.ObjectId;
     },
   ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest; medicineId: string }> {
+    await assertInventoryPeriodOpen(new Date());
     return withMongoTransaction(async (session) => {
       const requestQuery = PurchaseRequest.findById(id);
       if (session) requestQuery.session(session);
