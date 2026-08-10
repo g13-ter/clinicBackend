@@ -62,6 +62,36 @@ export class UserService {
     return user;
   }
 
+  async updateOwnProfile(
+    id: string,
+    data: { name?: string; email?: string; currentPassword: string; newPassword?: string },
+  ): Promise<{ before: IUser; after: IUser; sessionRevoked: boolean }> {
+    const user = await User.findById(id).select("+password +sessionVersion");
+    if (!user || !user.isActive) throw new AppError("User not found", 404);
+    if (!(await bcrypt.compare(data.currentPassword, user.password))) {
+      throw new AppError("Current password is incorrect", 403);
+    }
+    if (data.email) {
+      const normalized = data.email.trim().toLowerCase();
+      const duplicate = await User.exists({ email: normalized, _id: { $ne: id } });
+      if (duplicate) throw new AppError("Email already in use", 409);
+    }
+    const before = user;
+    const sessionRevoked = Boolean(data.newPassword);
+    const after = await User.findByIdAndUpdate(
+      id,
+      {
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.email ? { email: data.email.trim().toLowerCase() } : {}),
+        ...(data.newPassword ? { password: await bcrypt.hash(data.newPassword, 10) } : {}),
+        ...(sessionRevoked ? { $inc: { sessionVersion: 1 } } : {}),
+      },
+      { returnDocument: "after", runValidators: true },
+    ).select("-password");
+    if (!after) throw new AppError("User not found", 404);
+    return { before, after, sessionRevoked };
+  }
+
   // Small lookup list for booking and schedule management.
   async getDoctors(): Promise<IUser[]> {
     // Missing isActive means a legacy account created before deactivation was

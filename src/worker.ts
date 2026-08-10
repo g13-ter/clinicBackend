@@ -1,11 +1,10 @@
-import dotenv from "dotenv";
+import "dotenv/config";
 import mongoose from "mongoose";
 import connectDB from "./config/db";
 import { startBackgroundJobs } from "./jobs/backgroundJobs";
 import { validateEnv } from "./utils/validateEnv";
 import logger, { errorMetadata } from "./utils/logger";
 
-dotenv.config();
 validateEnv();
 
 let shuttingDown = false;

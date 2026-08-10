@@ -3,10 +3,11 @@ import app from "../src/app";
 import User from "../src/models/user.model";
 import bcrypt from "bcryptjs";
 import type { UserRole } from "../src/types/roles";
+import { CURRENT_TERMS_VERSION } from "../src/config/terms";
 
 
 // Shared password for temporary test accounts.
-export const TEST_PASSWORD = "testpass123";
+export const TEST_PASSWORD = "testpass1234";
 
 
 // Create a test user directly and return a valid JWT.
@@ -26,6 +27,7 @@ export const createTestUserAndLogin = async (
     password: hashedPassword,
     role,
     termsAccepted: true,
+    termsVersionAccepted: CURRENT_TERMS_VERSION,
   });
 
   const loginRes = await request(app)

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { AppError } from "../middleware/error.middleware";
 import jwt, { SignOptions } from "jsonwebtoken";
 import type { UserRole } from "../types/roles";
+import { CURRENT_TERMS_VERSION } from "../config/terms";
 
 const INVALID_CREDENTIALS_MESSAGE = "Invalid email or password";
 
@@ -57,7 +58,8 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
-        termsAccepted: user.termsAccepted === true,
+        termsAccepted:
+          user.termsAccepted === true && user.termsVersionAccepted === CURRENT_TERMS_VERSION,
       },
     };
   }

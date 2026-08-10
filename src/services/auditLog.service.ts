@@ -3,6 +3,7 @@ import User from "../models/user.model";
 import { PaginationParams } from "../utils/pagination";
 import type { UserRole } from "../types/roles";
 import { escapeRegex } from "../utils/regex";
+import { sanitizeAuditSnapshot } from "../utils/auditLog";
 
 export interface AuditLogFilters {
   resource?: string;
@@ -112,8 +113,20 @@ export class AuditLogService {
     );
     const logs = rawLogs.map((log) => {
       const actorId = String(log.performedBy);
+      const sanitizedBefore = log.changes?.before
+        ? sanitizeAuditSnapshot(log.resource, log.changes.before)
+        : undefined;
+      const sanitizedAfter = log.changes?.after
+        ? sanitizeAuditSnapshot(log.resource, log.changes.after)
+        : undefined;
       return {
         ...log,
+        ...(log.changes
+          ? { changes: {
+              ...(sanitizedBefore ? { before: sanitizedBefore } : {}),
+              ...(sanitizedAfter ? { after: sanitizedAfter } : {}),
+            } }
+          : {}),
         performedBy: actorsById.get(actorId) ?? actorId,
       };
     });

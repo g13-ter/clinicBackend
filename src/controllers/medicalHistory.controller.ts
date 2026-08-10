@@ -103,7 +103,12 @@ export const getHistoryByPatient = async (req: Request, res: Response, next: Nex
     const patientId = req.params.patientId as string;
     const pagination = getPaginationParams(req.query);
 
-    const { history, total } = await medicalHistoryService.getHistoryByPatient(patientId, pagination);
+    const actor = getAuthenticatedUser(req);
+    const { history, total } = await medicalHistoryService.getHistoryByPatient(
+      patientId,
+      pagination,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
 
     res.status(200).json({
       success: true,
@@ -120,7 +125,11 @@ export const getHistoryByPatient = async (req: Request, res: Response, next: Nex
 export const getHistoryById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
-    const entry = await medicalHistoryService.getHistoryById(id);
+    const actor = getAuthenticatedUser(req);
+    const entry = await medicalHistoryService.getHistoryById(
+      id,
+      actor.role === "doctor" ? actor.id : undefined,
+    );
 
     res.status(200).json({ success: true, message: "Medical history entry retrieved successfully", data: entry });
   } catch (error) {
@@ -136,7 +145,7 @@ export const updateMedicalHistory = async (req: Request, res: Response, next: Ne
     const { before, after } = await medicalHistoryService.updateMedicalHistory(id, {
       ...req.body,
       updatedBy: getAuthenticatedObjectId(req),
-    });
+    }, userId);
 
     logAudit({
       action: "update",
@@ -161,7 +170,8 @@ export const downloadMedicalCertificate = async (
   next: NextFunction,
 ): Promise<void> => {
   try {
-    const entry = await medicalHistoryService.getHistoryById(req.params.id as string);
+    const actor = getAuthenticatedUser(req);
+    const entry = await medicalHistoryService.getHistoryById(req.params.id as string, actor.id);
     const patient = entry.patientId as unknown as {
       firstName?: string;
       lastName?: string;

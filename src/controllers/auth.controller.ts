@@ -4,6 +4,7 @@ import { AppError } from "../middleware/error.middleware";
 import type { CookieOptions } from "express";
 import { SESSION_COOKIE_NAME } from "../utils/sessionToken";
 import User from "../models/user.model";
+import { CURRENT_TERMS_VERSION } from "../config/terms";
 
 const authService = new AuthService();
 
@@ -79,12 +80,14 @@ export const acceptTerms = async (
         $or: [
           { termsAccepted: { $ne: true } },
           { termsAcceptedAt: null },
+          { termsVersionAccepted: { $ne: CURRENT_TERMS_VERSION } },
         ],
       },
       {
         $set: {
           termsAccepted: true,
           termsAcceptedAt: acceptedAt,
+          termsVersionAccepted: CURRENT_TERMS_VERSION,
         },
       },
       { returnDocument: "after" }
@@ -105,6 +108,7 @@ export const acceptTerms = async (
       data: {
         termsAccepted: true,
         termsAcceptedAt: user.termsAcceptedAt?.toISOString() ?? acceptedAt.toISOString(),
+        termsVersion: CURRENT_TERMS_VERSION,
       },
     });
   } catch (error) {

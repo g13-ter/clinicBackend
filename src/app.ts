@@ -78,6 +78,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Clinical API responses must never be retained by browsers or shared proxies.
+app.use("/api", (_req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, private, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
+
 // Public health check for load balancers and CI.
 app.use("/api/health", healthRoutes);
 

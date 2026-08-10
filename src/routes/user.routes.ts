@@ -6,6 +6,7 @@ import {
   getUserById,
   getDoctors,
   getCurrentUserProfile,
+  updateCurrentUserProfile,
   updateUser,
   deleteUser,
 } from "../controllers/user.controller";
@@ -13,7 +14,7 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { registerSchema, updateUserSchema } from "../validators/schemas";
+import { registerSchema, updateOwnProfileSchema, updateUserSchema } from "../validators/schemas";
 
 const router = express.Router();
 
@@ -24,6 +25,13 @@ router.get(
   protect,
   allowRoles("staff", "nurse", "doctor", "admin"),
   getDoctors
+);
+
+router.put(
+  "/me",
+  protect,
+  validateBody(updateOwnProfileSchema),
+  updateCurrentUserProfile,
 );
 
 router.get(

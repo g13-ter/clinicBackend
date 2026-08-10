@@ -155,3 +155,29 @@ export const getCurrentUserProfile = async (req: Request, res: Response, next: N
     next(error);
   }
 };
+
+export const updateCurrentUserProfile = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const actor = getAuthenticatedUser(req);
+    const { before, after, sessionRevoked } = await userService.updateOwnProfile(actor.id, req.body);
+    await logAudit({
+      action: "update",
+      resource: "User",
+      resourceId: actor.id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+    res.status(200).json({
+      success: true,
+      message: sessionRevoked
+        ? "Profile updated. Sign in again with your new password."
+        : "Profile updated successfully",
+      data: { user: after, sessionRevoked },
+    });
+  } catch (error) {
+    next(error);
+  }
+};

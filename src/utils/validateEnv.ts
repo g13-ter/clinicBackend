@@ -37,6 +37,14 @@ export const validateEnv = (): void => {
   }
 
   if (
+    process.env.NODE_ENV === "production" &&
+    process.env.MONGO_TRANSACTIONS_ENABLED === "false"
+  ) {
+    logger.error("FATAL ERROR: MongoDB transactions cannot be disabled in production.");
+    process.exit(1);
+  }
+
+  if (
     process.env.RUN_BACKGROUND_JOBS_IN_API &&
     !["true", "false"].includes(process.env.RUN_BACKGROUND_JOBS_IN_API)
   ) {

@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { jwtPayloadSchema } from "../types/auth";
 import User from "../models/user.model";
 import { getRequestToken } from "../utils/sessionToken";
+import { CURRENT_TERMS_VERSION } from "../config/terms";
 
 export const protect = (
   req: Request,
@@ -59,9 +60,10 @@ const authenticate = async (
       ...parsed.data,
       role: user.role,
     };
-    req.termsAccepted = user.termsAccepted;
+    req.termsAccepted =
+      user.termsAccepted === true && user.termsVersionAccepted === CURRENT_TERMS_VERSION;
 
-    if (requireTermsAcceptance && !user.termsAccepted) {
+    if (requireTermsAcceptance && !req.termsAccepted) {
       res.status(403).json({
         success: false,
         code: "TERMS_ACCEPTANCE_REQUIRED",

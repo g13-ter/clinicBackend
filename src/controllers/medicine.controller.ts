@@ -139,7 +139,6 @@ export const getMedicineById = async (req: Request, res: Response, next: NextFun
 // UPDATE
 export const updateMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    await assertInventoryPeriodOpen(new Date());
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
 
@@ -147,17 +146,6 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
       ...req.body,
       lastUpdatedBy: getAuthenticatedObjectId(req),
     });
-
-    if (before.quantity !== after.quantity) {
-      await StockMovement.create({
-        medicineId: after._id,
-        type: "adjustment",
-        quantityChange: after.quantity - before.quantity,
-        balanceAfter: after.quantity,
-        performedBy: getAuthenticatedObjectId(req),
-        notes: "Manual inventory quantity adjustment",
-      });
-    }
 
     logAudit({
       action: "update",
@@ -222,7 +210,7 @@ export const deleteMedicine = async (req: Request, res: Response, next: NextFunc
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
 
-    const deleted = await medicineService.deleteMedicine(id);
+    const deleted = await medicineService.deleteMedicine(id, userId);
 
     logAudit({
       action: "delete",
@@ -234,7 +222,7 @@ export const deleteMedicine = async (req: Request, res: Response, next: NextFunc
       path: req.originalUrl,
     });
 
-    res.status(200).json({ success: true, message: "Medicine removed from inventory successfully" });
+    res.status(200).json({ success: true, message: "Medicine discontinued successfully" });
   } catch (error) {
     next(error);
   }
