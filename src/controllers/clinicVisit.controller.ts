@@ -6,10 +6,56 @@ import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUse
 import { AppError } from "../middleware/error.middleware";
 import { buildReferralDocx } from "../utils/referralDocx";
 import { PatientService } from "../services/patient.service";
-import { CURRENT_CONSENT_VERSION } from "../config/consent";
+import { createInAppNotification, notifyActiveDoctors } from "../services/inAppNotification.service";
+import logger, { errorMetadata } from "../utils/logger";
+import type { IClinicVisit } from "../models/clinicVisit.model";
 
 const clinicVisitService = new ClinicVisitService();
 const patientService = new PatientService();
+
+const notifyDoctorsForVisit = async (
+  visit: IClinicVisit,
+  kind: "visit_ready" | "emergency",
+): Promise<void> => {
+  const patient = await patientService.getPatientById(String(visit.patientId));
+  const patientName = `${patient.firstName} ${patient.lastName}`;
+  const input = {
+    kind,
+    title: kind === "emergency" ? "Emergency case" : "Student ready for consultation",
+    message: kind === "emergency"
+      ? `${patientName}: ${visit.emergencyDetails || visit.complaint}`
+      : `${patientName} is ready for the doctor.`,
+    link: `/clinical-workspace?tab=consultation&visitId=${visit._id}&patientId=${visit.patientId}`,
+    resourceType: "ClinicVisit" as const,
+    resourceId: String(visit._id),
+    dedupeKey: `doctor:${kind}:${visit._id}`,
+  };
+
+  if (visit.assignedDoctorId) {
+    await createInAppNotification({
+      ...input,
+      userId: String(visit.assignedDoctorId),
+      dedupeKey: `${input.dedupeKey}:${visit.assignedDoctorId}`,
+    });
+  } else {
+    await notifyActiveDoctors(input);
+  }
+};
+
+const safelyNotifyDoctorsForVisit = async (
+  visit: IClinicVisit,
+  kind: "visit_ready" | "emergency",
+): Promise<void> => {
+  try {
+    await notifyDoctorsForVisit(visit, kind);
+  } catch (error) {
+    logger.error("in_app_notification_creation_failed", {
+      visitId: String(visit._id),
+      kind,
+      ...errorMetadata(error),
+    });
+  }
+};
 
 const visitFieldsByRole = {
   staff: ["complaint", "isEmergency", "emergencyDetails"],
@@ -137,6 +183,7 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
     const id = req.params.id as string;
     const userId = getAuthenticatedUser(req).id;
     const { before, after } = await clinicVisitService.markReadyForDoctor(id, userId);
+    await safelyNotifyDoctorsForVisit(after, "visit_ready");
 
     logAudit({
       action: "update",
@@ -181,16 +228,7 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
       throw new AppError("Administrators cannot create clinical visits", 403);
     }
     const permittedVisitData = restrictVisitFields(actor.role, visitData);
-    if (!permittedVisitData.isEmergency) {
-      const patient = await patientService.getPatientById(patientId);
-      if (
-        patient.consents?.treatment !== true ||
-        patient.consents?.dataPrivacy !== true ||
-        patient.consents?.version !== CURRENT_CONSENT_VERSION
-      ) {
-        throw new AppError("Current treatment and data-privacy consent must be recorded before a non-emergency visit", 409);
-      }
-    }
+    await patientService.getPatientById(patientId);
     if (permittedVisitData.heightCm && permittedVisitData.weightKg) {
       permittedVisitData.bmi = Number((
         Number(permittedVisitData.weightKg) /
@@ -203,6 +241,10 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
       ...permittedVisitData,
       recordedBy: getAuthenticatedObjectId(req),
     });
+
+    if (visit.isEmergency) {
+      await safelyNotifyDoctorsForVisit(visit, "emergency");
+    }
 
     logAudit({
       action: "create",

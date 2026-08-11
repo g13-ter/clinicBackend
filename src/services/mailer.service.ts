@@ -9,9 +9,14 @@ interface SendEmailParams {
   html: string;
 }
 
+export interface EmailDeliveryResult {
+  accepted: boolean;
+  providerMessageId?: string;
+}
+
 // Email delivery must not block or fail API requests.
-const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolean> => {
-  if (process.env.NODE_ENV === "test") return true;
+const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<EmailDeliveryResult> => {
+  if (process.env.NODE_ENV === "test") return { accepted: true };
 
   const resendApiKey = process.env.RESEND_API_KEY;
   const fromAddress =
@@ -36,13 +41,13 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolea
 
   if (!resendApiKey) {
     logger.error("mailer_configuration_missing", { provider: "resend" });
-    return false;
+    return { accepted: false };
   }
 
   const resend = new Resend(resendApiKey);
 
   try {
-    const { error } = await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromAddress,
       to: deliveryRecipient,
       subject: redirectForDevelopment ? `[TEST] ${subject}` : subject,
@@ -51,17 +56,20 @@ const sendEmail = async ({ to, subject, html }: SendEmailParams): Promise<boolea
 
     if (error) {
       logger.error("mailer_provider_error", { provider: "resend", ...errorMetadata(error) });
-      return false;
+      return { accepted: false };
     }
 
     logger.info("mailer_delivery_succeeded", {
       provider: "resend",
       redirectedForDevelopment: redirectForDevelopment,
     });
-    return true;
+    return {
+      accepted: true,
+      ...(data?.id ? { providerMessageId: data.id } : {}),
+    };
   } catch (error) {
     logger.error("mailer_delivery_failed", { provider: "resend", ...errorMetadata(error) });
-    return false;
+    return { accepted: false };
   }
 };
 
@@ -92,7 +100,7 @@ export const mailer = {
     appointmentDate: Date;
     doctorName?: string;
     reason: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: "Appointment Scheduled - School Clinic",
@@ -116,7 +124,7 @@ export const mailer = {
     patientName: string;
     appointmentDate: Date;
     doctorName?: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: "Appointment Confirmed by Doctor - School Clinic",
@@ -141,7 +149,7 @@ export const mailer = {
     appointmentDate: Date;
     doctorName?: string;
     reason: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: "Appointment Rescheduled - School Clinic",
@@ -168,7 +176,7 @@ export const mailer = {
     doctorName?: string;
     reason: string;
     cancellationReason: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: "Appointment Cancelled - School Clinic",
@@ -193,7 +201,7 @@ export const mailer = {
     patientName: string;
     appointmentDate: Date;
     doctorName?: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: "Reminder: Upcoming School Clinic Appointment",
@@ -217,7 +225,7 @@ export const mailer = {
     quantity: number;
     unit: string;
     status: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: `Inventory Alert: ${params.itemName} is ${params.status}`,
@@ -237,7 +245,7 @@ export const mailer = {
     quantityRequested: number;
     requestedByName: string;
     reason: string;
-  }): Promise<boolean> =>
+  }): Promise<EmailDeliveryResult> =>
     sendEmail({
       to: params.to,
       subject: `Purchase Request Pending Review: ${params.itemName}`,

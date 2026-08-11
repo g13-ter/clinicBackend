@@ -5,7 +5,6 @@ import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
 import type { IPatient } from "../models/patient.model";
 import { AppError } from "../middleware/error.middleware";
-import { CURRENT_CONSENT_VERSION } from "../config/consent";
 
 const patientService = new PatientService();
 
@@ -28,21 +27,6 @@ const ageFromDateOfBirth = (value: unknown): number | undefined => {
 const withCalculatedAge = (body: Record<string, unknown>): Record<string, unknown> => {
   const age = ageFromDateOfBirth(body.dateOfBirth);
   return age === undefined ? body : { ...body, age };
-};
-
-const withConsentEvidence = (body: Record<string, unknown>, recordedBy: string) => {
-  const consents = body.consents;
-  if (!consents || typeof consents !== "object") return body;
-  return {
-    ...body,
-    consents: {
-      ...(consents as Record<string, unknown>),
-      version: CURRENT_CONSENT_VERSION,
-      source: "in_person",
-      updatedAt: new Date(),
-      recordedBy,
-    },
-  };
 };
 
 const STAFF_PATIENT_FIELDS = [
@@ -99,10 +83,7 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
   try {
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = withConsentEvidence(
-      withCalculatedAge(req.body as Record<string, unknown>),
-      authenticatedUser.id,
-    );
+    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
     const patient = await patientService.createPatient({
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       createdBy: getAuthenticatedObjectId(req),
@@ -183,10 +164,7 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
     const id = req.params.id as string;
     const authenticatedUser = getAuthenticatedUser(req);
     const userId = authenticatedUser.id;
-    const submitted = withConsentEvidence(
-      withCalculatedAge(req.body as Record<string, unknown>),
-      authenticatedUser.id,
-    );
+    const submitted = withCalculatedAge(req.body as Record<string, unknown>);
     const { before, after } = await patientService.updatePatient(id, {
       ...(authenticatedUser.role === "staff" ? staffPatientPayload(submitted) : submitted),
       updatedBy: getAuthenticatedObjectId(req),

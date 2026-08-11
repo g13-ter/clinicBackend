@@ -60,6 +60,10 @@ export const validateEnv = (): void => {
     );
   }
 
+  if (process.env.NODE_ENV === "production" && process.env.RESEND_API_KEY && !process.env.RESEND_WEBHOOK_SECRET) {
+    logger.warn("RESEND_WEBHOOK_SECRET is not set — final email delivery status cannot be tracked.");
+  }
+
   if (process.env.NODE_ENV === "production" && !process.env.INTERNAL_API_KEY) {
     logger.warn(
       "INTERNAL_API_KEY is not set — POST /api/internal/send-reminders is disabled. " +

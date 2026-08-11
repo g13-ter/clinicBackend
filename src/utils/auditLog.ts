@@ -27,6 +27,12 @@ export const sanitizeAuditSnapshot = (
 ): Record<string, unknown> | undefined => {
   if (!snapshot) return undefined;
   if (CLINICAL_RESOURCES.has(resource)) {
+    if (Array.isArray(snapshot.changedFields)) {
+      return {
+        changedFields: snapshot.changedFields.filter((field): field is string => typeof field === "string"),
+        ...(snapshot.recordVersion === undefined ? {} : { recordVersion: snapshot.recordVersion }),
+      };
+    }
     const recordVersion = snapshot.__v;
     return {
       changedFields: Object.keys(snapshot)

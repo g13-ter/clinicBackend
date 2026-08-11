@@ -45,7 +45,7 @@ beforeAll(async () => {
     course: "BSN",
     yearLevel: 1,
     contactNumber: "09171234567",
-    address: "Test Address"
+    address: "Test Address",
   });
 
   testPatientId = (patient._id as any).toString();
@@ -152,7 +152,7 @@ describe("Clinic Visits - Create (clinical roles)", () => {
 
 describe("Clinic Visits - View permissions", () => {
 
-  it("DOCTOR can view visits for a patient", async () => {
+  it("does not expose an unassigned visit through doctor patient history", async () => {
 
     const res = await request(app)
       .get(`/api/visits/patient/${testPatientId}`)
@@ -160,7 +160,7 @@ describe("Clinic Visits - View permissions", () => {
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body.data)).toBe(true);
-    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data).toHaveLength(0);
 
   });
 
@@ -268,13 +268,20 @@ describe("Clinic Visits - Archive (admin only)", () => {
 
 describe("Clinic Visits - Field-level clinical permissions", () => {
   it("blocks a DOCTOR from changing nurse-recorded vital signs", async () => {
+    const assignedVisit = await ClinicVisit.create({
+      patientId: testPatientId,
+      complaint: "TEST assigned field permissions",
+      recordedBy: nurseId,
+      assignedDoctorId: doctorId,
+    });
     const res = await request(app)
-      .put(`/api/visits/${createdVisitId}`)
+      .put(`/api/visits/${assignedVisit._id}`)
       .set("Authorization", `Bearer ${doctorToken}`)
       .send({ temperature: 38.2 });
 
     expect(res.status).toBe(403);
     expect(res.body.message).toMatch(/only be recorded or updated by a nurse/i);
+    await ClinicVisit.findByIdAndDelete(assignedVisit._id);
   });
 
   it("blocks a NURSE from recording physician consultation findings", async () => {

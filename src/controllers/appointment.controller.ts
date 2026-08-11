@@ -10,6 +10,7 @@ import { AppError } from "../middleware/error.middleware";
 import type { IAppointment } from "../models/appointment.model";
 import type { ClientSession } from "mongoose";
 import { withMongoTransaction } from "../utils/transaction";
+import { createInAppNotification } from "../services/inAppNotification.service";
 
 const appointmentService = new AppointmentService();
 const patientService = new PatientService();
@@ -28,7 +29,7 @@ const enqueueAppointmentLifecycleNotification = async (
   session?: ClientSession,
 ): Promise<void> => {
   const patient = await patientService.getPatientById(String(appointment.patientId));
-  if (!patient.email) return;
+  const patientName = `${patient.firstName} ${patient.lastName}`;
 
   let doctorName: string | undefined;
   if (appointment.doctorId) {
@@ -37,28 +38,58 @@ const enqueueAppointmentLifecycleNotification = async (
   }
 
   const appointmentDate = appointment.appointmentDate.toISOString();
-  await enqueueNotification({
-    kind,
-    recipient: patient.email,
-    dedupeKey: [
+  if (appointment.doctorId && kind !== "appointment_doctor_confirmed") {
+    const notificationKind = kind === "appointment_confirmation"
+      ? "appointment_assigned"
+      : kind === "appointment_cancelled"
+        ? "appointment_cancelled"
+        : "appointment_rescheduled";
+    const title = notificationKind === "appointment_assigned"
+      ? "New appointment assigned"
+      : notificationKind === "appointment_cancelled"
+        ? "Appointment cancelled"
+        : "Appointment rescheduled";
+    await createInAppNotification({
+      userId: String(appointment.doctorId),
+      kind: notificationKind,
+      title,
+      message: `${patientName}: ${appointment.appointmentDate.toLocaleString("en-PH", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: process.env.CLINIC_TIME_ZONE || "Asia/Manila",
+      })}`,
+      link: "/dashboard?tab=appointments",
+      resourceType: "Appointment",
+      resourceId: String(appointment._id),
+      dedupeKey: `doctor:${kind}:${appointment._id}:${appointment.updatedAt.toISOString()}:${appointment.doctorId}`,
+      ...(session ? { session } : {}),
+    });
+  }
+
+  if (patient.email) {
+    await enqueueNotification({
       kind,
-      String(appointment._id),
-      appointment.updatedAt.toISOString(),
-      patient.email,
-    ].join(":"),
-    payload: {
-      appointmentId: String(appointment._id),
-      patientName: `${patient.firstName} ${patient.lastName}`,
-      appointmentDate,
-      reason: appointment.reason,
-      ...(appointment.cancellationReason
-        ? { cancellationReason: appointment.cancellationReason }
-        : {}),
-      ...(doctorName ? { doctorName } : {}),
-      ...(previousDate ? { previousDate: previousDate.toISOString() } : {}),
-    },
-    ...(session ? { session } : {}),
-  });
+      recipient: patient.email,
+      dedupeKey: [
+        kind,
+        String(appointment._id),
+        appointment.updatedAt.toISOString(),
+        patient.email,
+      ].join(":"),
+      payload: {
+        appointmentId: String(appointment._id),
+        patientName,
+        appointmentDate,
+        reason: appointment.reason,
+        ...(appointment.cancellationReason
+          ? { cancellationReason: appointment.cancellationReason }
+          : {}),
+        ...(doctorName ? { doctorName } : {}),
+        ...(previousDate ? { previousDate: previousDate.toISOString() } : {}),
+      },
+      ...(session ? { session } : {}),
+    });
+  }
 };
 
 // CREATE
@@ -209,6 +240,21 @@ export const updateAppointment = async (req: Request, res: Response, next: NextF
       const changed =
         result.before.appointmentDate.getTime() !== result.after.appointmentDate.getTime() ||
         String(result.before.doctorId ?? "") !== String(result.after.doctorId ?? "");
+      const previousDoctorId = String(result.before.doctorId ?? "");
+      const currentDoctorId = String(result.after.doctorId ?? "");
+      if (previousDoctorId && previousDoctorId !== currentDoctorId) {
+        await createInAppNotification({
+          userId: previousDoctorId,
+          kind: "appointment_reassigned",
+          title: "Appointment reassigned",
+          message: "An appointment previously assigned to you was reassigned.",
+          link: "/dashboard?tab=appointments",
+          resourceType: "Appointment",
+          resourceId: String(result.after._id),
+          dedupeKey: `doctor:appointment_reassigned:${result.after._id}:${result.after.updatedAt.toISOString()}:${previousDoctorId}`,
+          ...(session ? { session } : {}),
+        });
+      }
       if (cancelled) {
         await enqueueAppointmentLifecycleNotification(
           "appointment_cancelled",

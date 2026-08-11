@@ -74,6 +74,7 @@ describe("Medicine Inventory - Create (nurse only)", () => {
         lowStockThreshold: 10,
         batchNumber: "TEST-INITIAL-BATCH",
         dateReceived: new Date().toISOString(),
+        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       });
 
     expect(res.status).toBe(201);
@@ -172,14 +173,18 @@ describe("Medicine Inventory - Low stock detection", () => {
   it("clears the low-stock flag once restocked above the threshold", async () => {
 
     const updateRes = await request(app)
-      .put(`/api/medicines/${createdMedicineId}`)
+      .post(`/api/medicines/${createdMedicineId}/batches`)
       .set("Authorization", `Bearer ${nurseToken}`)
-      .send({ quantity: 100 });
+      .send({
+        batchNumber: `TEST-RESTOCK-${Date.now()}`,
+        quantityReceived: 95,
+        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      });
 
-    expect(updateRes.status).toBe(200);
+    expect(updateRes.status).toBe(201);
     const adjustment = await StockMovement.findOne({
       medicineId: createdMedicineId,
-      type: "adjustment",
+      type: "received",
     }).sort({ occurredAt: -1 });
     expect(adjustment?.quantityChange).toBe(95);
     expect(adjustment?.balanceAfter).toBe(100);

@@ -143,7 +143,7 @@ describe("Audit Logs - real actions get recorded", () => {
     expect(entry.action).toBe("create");
     expect(entry.resource).toBe("Patient");
     expect(entry.resourceId).toBe(createdPatientId);
-    expect(entry.changes.after.firstName).toBe("Audit");
+    expect(entry.changes.after.changedFields).toContain("firstName");
     // performedBy gets populated with name/role - confirm it's the nurse who created it
     expect(entry.performedBy._id).toBe(nurseId);
 
@@ -185,8 +185,8 @@ describe("Audit Logs - real actions get recorded", () => {
     );
 
     expect(entry).toBeDefined();
-    expect(entry.changes.before.firstName).toBe("Audit");
-    expect(entry.changes.after.firstName).toBe("AuditUpdated");
+    expect(entry.changes.before.changedFields).toContain("firstName");
+    expect(entry.changes.after.changedFields).toContain("firstName");
 
   });
 
@@ -205,8 +205,8 @@ describe("Audit Logs - real actions get recorded", () => {
     );
 
     expect(entry).toBeDefined();
-    expect(entry.changes.before.isActive).toBe(true);
-    expect(entry.changes.after.isActive).toBe(false);
+    expect(entry.changes.before.changedFields).toContain("isActive");
+    expect(entry.changes.after.changedFields).toContain("isActive");
 
   });
 

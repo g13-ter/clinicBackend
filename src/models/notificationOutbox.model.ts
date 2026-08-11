@@ -20,6 +20,10 @@ export interface INotificationOutbox extends Document {
   claimedAt?: Date;
   sentAt?: Date;
   lastError?: string;
+  providerMessageId?: string;
+  deliveryStatus?: "accepted" | "sent" | "delayed" | "delivered" | "bounced" | "failed" | "complained" | "suppressed";
+  deliveryRank: number;
+  deliveryUpdatedAt?: Date;
 }
 
 const NotificationOutboxSchema = new Schema<INotificationOutbox>({
@@ -51,6 +55,13 @@ const NotificationOutboxSchema = new Schema<INotificationOutbox>({
   claimedAt: Date,
   sentAt: Date,
   lastError: String,
+  providerMessageId: { type: String, index: true, sparse: true },
+  deliveryStatus: {
+    type: String,
+    enum: ["accepted", "sent", "delayed", "delivered", "bounced", "failed", "complained", "suppressed"],
+  },
+  deliveryRank: { type: Number, default: 0 },
+  deliveryUpdatedAt: Date,
 }, { timestamps: true });
 
 NotificationOutboxSchema.index({ status: 1, availableAt: 1, claimedAt: 1 });
