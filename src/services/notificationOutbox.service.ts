@@ -3,6 +3,7 @@ import { mailer } from "./mailer.service";
 import logger, { errorMetadata } from "../utils/logger";
 import Appointment from "../models/appointment.model";
 import type { ClientSession } from "mongoose";
+import type { EmailDeliveryResult } from "./mailer.service";
 
 const CLAIM_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -29,7 +30,7 @@ const stringValue = (payload: Record<string, unknown>, key: string): string =>
 const numberValue = (payload: Record<string, unknown>, key: string): number =>
   typeof payload[key] === "number" ? payload[key] : 0;
 
-async function deliver(kind: NotificationKind, recipient: string, payload: Record<string, unknown>): Promise<boolean> {
+async function deliver(kind: NotificationKind, recipient: string, payload: Record<string, unknown>): Promise<EmailDeliveryResult> {
   if (kind === "appointment_confirmation") {
     return mailer.sendAppointmentConfirmation({
       to: recipient,
@@ -162,11 +163,21 @@ export async function processNotificationOutbox(limit = 100): Promise<{ processe
         continue;
       }
 
-      const sent = await deliver(item.kind, item.recipient, item.payload);
-      if (!sent) throw new Error("Email provider did not accept the message");
+      const delivery = await deliver(item.kind, item.recipient, item.payload);
+      if (!delivery.accepted) throw new Error("Email provider did not accept the message");
       await NotificationOutbox.updateOne(
         { _id: item._id, claimedAt: now },
-        { $set: { status: "sent", sentAt: new Date() }, $unset: { claimedAt: 1, lastError: 1 } },
+        {
+          $set: {
+            status: "sent",
+            sentAt: new Date(),
+            deliveryStatus: "accepted",
+            deliveryRank: 0,
+            deliveryUpdatedAt: new Date(),
+            ...(delivery.providerMessageId ? { providerMessageId: delivery.providerMessageId } : {}),
+          },
+          $unset: { claimedAt: 1, lastError: 1 },
+        },
       );
       result.sent += 1;
     } catch (error: unknown) {

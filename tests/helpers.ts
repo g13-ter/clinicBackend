@@ -4,6 +4,7 @@ import User from "../src/models/user.model";
 import bcrypt from "bcryptjs";
 import type { UserRole } from "../src/types/roles";
 import { CURRENT_TERMS_VERSION } from "../src/config/terms";
+import InAppNotification from "../src/models/inAppNotification.model";
 
 
 // Shared password for temporary test accounts.
@@ -49,6 +50,9 @@ export const createTestUserAndLogin = async (
 // Delete a test user during cleanup.
 export const deleteTestUser = async (userId: string) => {
 
-  await User.findByIdAndDelete(userId);
+  await Promise.all([
+    User.findByIdAndDelete(userId),
+    InAppNotification.deleteMany({ userId }),
+  ]);
 
 };

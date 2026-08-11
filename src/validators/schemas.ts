@@ -58,13 +58,6 @@ export const createPatientSchema = z.object({
     currentMedications: z.array(z.string().min(1)).optional(),
     notes: z.string().optional(),
   }).optional(),
-  consents: z.object({
-    treatment: z.boolean(),
-    medicineAdministration: z.boolean(),
-    dataPrivacy: z.boolean(),
-    guardianName: z.string().optional(),
-    updatedAt: z.coerce.date().optional(),
-  }).optional(),
   schoolYear: z.string().regex(/^\d{4}-\d{4}$/).optional(),
   enrollmentStatus: z.enum(["active", "graduated", "transferred"]).optional(),
   immunizations: z.array(z.object({

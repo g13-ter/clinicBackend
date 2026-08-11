@@ -23,6 +23,7 @@ import dashboardRoutes from "./routes/dashboard.routes";
 import systemSettingsRoutes from "./routes/systemSettings.routes";
 import notificationRoutes from "./routes/notification.routes";
 import { requestLogger } from "./middleware/requestLogger.middleware";
+import webhookRoutes from "./routes/webhook.routes";
 
 // Builds the app without opening a port so tests can import it safely.
 
@@ -37,6 +38,7 @@ if (process.env.NODE_ENV === "production") {
 }
 
 app.use(helmet());
+app.use("/api/webhooks", webhookRoutes);
 
 // Accept one or more comma-separated origins.
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")

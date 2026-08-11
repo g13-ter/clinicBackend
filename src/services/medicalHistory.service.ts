@@ -10,7 +10,6 @@ import { withMongoTransaction } from "../utils/transaction";
 import StockMovement from "../models/stockMovement.model";
 import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
 import Patient from "../models/patient.model";
-import { CURRENT_CONSENT_VERSION } from "../config/consent";
 
 export interface StockChange {
   medicine: IMedicine;
@@ -30,18 +29,6 @@ export class MedicalHistoryService {
         if (session) patientQuery.session(session);
         const patient = await patientQuery;
         if (!patient) throw new AppError("Patient not found", 404);
-        const visitForConsentQuery = data.visitId ? ClinicVisit.findById(data.visitId) : null;
-        if (session && visitForConsentQuery) visitForConsentQuery.session(session);
-        const visitForConsent = visitForConsentQuery ? await visitForConsentQuery : null;
-        if (!visitForConsent?.isEmergency && (
-          patient.consents?.treatment !== true ||
-          patient.consents?.version !== CURRENT_CONSENT_VERSION
-        )) {
-          throw new AppError("Current treatment consent is required before saving consultation care", 409);
-        }
-        if ((data.prescribedItems?.length ?? 0) > 0 && !visitForConsent?.isEmergency && patient.consents?.medicineAdministration !== true) {
-          throw new AppError("Medicine-administration consent is required before dispensing", 409);
-        }
         if (data.visitId) {
           const existingQuery = MedicalHistory.findOne({ visitId: data.visitId });
           if (session) existingQuery.session(session);

@@ -46,7 +46,7 @@ beforeAll(async () => {
     course: "BSIT",
     yearLevel: 3,
     contactNumber: "09171234567",
-    address: "Test Address"
+    address: "Test Address",
   });
 
   testPatientId = (patient._id as any).toString();

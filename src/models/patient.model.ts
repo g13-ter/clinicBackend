@@ -27,16 +27,6 @@ export interface IPatient extends Document {
   clinicalProfileUpdatedBy?: mongoose.Types.ObjectId;
   clinicalProfileVerifiedBy?: mongoose.Types.ObjectId;
   clinicalProfileVerifiedAt?: Date;
-  consents?: {
-    treatment: boolean;
-    medicineAdministration: boolean;
-    dataPrivacy: boolean;
-    guardianName?: string;
-    updatedAt?: Date;
-    version?: string;
-    source?: "in_person" | "guardian_form";
-    recordedBy?: mongoose.Types.ObjectId;
-  };
   schoolYear?: string;
   enrollmentStatus: "active" | "graduated" | "transferred";
   immunizations?: { vaccine: string; dateAdministered?: Date; notes?: string }[];
@@ -123,16 +113,6 @@ const PatientSchema = new Schema<IPatient>(
       ref: "User",
     },
     clinicalProfileVerifiedAt: Date,
-    consents: {
-      treatment: { type: Boolean, default: false },
-      medicineAdministration: { type: Boolean, default: false },
-      dataPrivacy: { type: Boolean, default: false },
-      guardianName: String,
-      updatedAt: Date,
-      version: String,
-      source: { type: String, enum: ["in_person", "guardian_form"] },
-      recordedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    },
     schoolYear: String,
     enrollmentStatus: {
       type: String,

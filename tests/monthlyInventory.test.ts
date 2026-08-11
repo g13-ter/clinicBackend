@@ -125,6 +125,7 @@ describe("Monthly inventory snapshots", () => {
         batchNumber: `TEST-BACKDATE-${Date.now()}`,
         quantityReceived: 1,
         receivedAt: new Date(Date.UTC(YEAR, MONTH - 1, 20)).toISOString(),
+        expiryDate: new Date(Date.UTC(YEAR + 1, MONTH - 1, 20)).toISOString(),
       });
     expect(response.status).toBe(409);
     expect(response.body.message).toMatch(/finalized month/i);

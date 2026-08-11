@@ -265,11 +265,6 @@ describe("Patients - View permissions differ by role", () => {
         currentMedications: ["Confidential medication"],
         notes: "Confidential medical note",
       },
-      consents: {
-        treatment: true,
-        medicineAdministration: true,
-        dataPrivacy: true,
-      },
     });
 
     const res = await request(app)
@@ -287,7 +282,6 @@ describe("Patients - View permissions differ by role", () => {
     expect(found).not.toHaveProperty("bloodType");
     expect(found).not.toHaveProperty("healthConditions");
     expect(found).not.toHaveProperty("medicalAlerts");
-    expect(found).not.toHaveProperty("consents");
   });
 
 });
