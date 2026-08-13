@@ -6,6 +6,7 @@ export interface IMonthlyInventoryItem {
   medicineId: mongoose.Types.ObjectId;
   medicineName: string;
   category?: string;
+  inventorySection?: string;
   unit: string;
   beginningBalance: number;
   receivedQuantity: number;
@@ -39,6 +40,7 @@ const MonthlyInventoryItemSchema = new Schema<IMonthlyInventoryItem>({
   medicineId: { type: Schema.Types.ObjectId, ref: "Medicine", required: true },
   medicineName: { type: String, required: true },
   category: String,
+  inventorySection: String,
   unit: { type: String, required: true },
   beginningBalance: { type: Number, required: true, min: 0 },
   receivedQuantity: { type: Number, required: true, min: 0 },

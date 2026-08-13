@@ -2,7 +2,10 @@ import { Request, Response, NextFunction } from "express";
 import { ReportService } from "../services/report.service";
 import { buildReportDocx } from "../utils/reportDocx";
 import { buildAnnualMedicationXls } from "../utils/annualMedicationXls";
+import { buildMonthlyMedicationInventoryXls } from "../utils/monthlyMedicationInventoryXls";
 import { AppError } from "../middleware/error.middleware";
+import InventoryLabel from "../models/inventoryLabel.model";
+import { STANDARD_INVENTORY_LABELS } from "../services/inventoryLabel.service";
 
 const reportService = new ReportService();
 
@@ -143,6 +146,61 @@ export const getAnnualMedicationReport = async (
   }
 };
 
+export const getMonthlyMedicationInventoryForm = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { startDate, endDate } = getReportRange(
+      req.query.startDate as string | undefined,
+      req.query.endDate as string | undefined,
+    );
+    const allRows = await reportService.getMedicationInventoryReport(startDate, endDate);
+    const requestedLabels = typeof req.query.labels === "string"
+      ? req.query.labels.split(",").map((label) => label.trim()).filter(Boolean)
+      : [];
+    const savedLabels = await InventoryLabel.find({ isActive: true }).sort({ sortOrder: 1, name: 1 }).select("name").lean();
+    const discovered = allRows.map((row) => row.inventorySection);
+    const availableLabels = [...new Set([...savedLabels.map((label) => label.name), ...STANDARD_INVENTORY_LABELS, ...discovered])];
+    const explicitlyNone = requestedLabels.includes("__none__");
+    const visibleSections = explicitlyNone
+      ? []
+      : requestedLabels.length
+      ? availableLabels.filter((label) => requestedLabels.includes(label))
+      : availableLabels;
+    const rows = allRows.filter((row) => visibleSections.includes(row.inventorySection));
+    const clinicName = process.env.CLINIC_NAME?.trim() || "School Clinic";
+    const buffer = buildMonthlyMedicationInventoryXls(rows, startDate, endDate, clinicName, {
+      visibleSections,
+      includeEmpty: req.query.includeEmpty !== "false",
+    });
+    const suffix = `${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}`;
+    res.setHeader("Content-Type", "application/vnd.ms-excel; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="Monthly_Medication_Inventory_${suffix}.xls"`,
+    );
+    res.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const previewMonthlyMedicationInventory = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { startDate, endDate } = getReportRange(req.query.startDate as string | undefined, req.query.endDate as string | undefined);
+    const allRows = await reportService.getMedicationInventoryReport(startDate, endDate);
+    const requestedLabels = typeof req.query.labels === "string" ? req.query.labels.split(",").map((label) => label.trim()).filter(Boolean) : [];
+    const rows = requestedLabels.includes("__none__") ? [] : requestedLabels.length ? allRows.filter((row) => requestedLabels.includes(row.inventorySection)) : allRows;
+    res.json({ success: true, message: "Medication inventory preview retrieved", data: rows });
+  } catch (error) { next(error); }
+};
+
 export const exportReportCsv = async (
   req: Request,
   res: Response,
@@ -174,6 +232,7 @@ export const exportReportCsv = async (
         `${type === "inventory-current" ? "Current_Stock" : "Expiry_and_Batch"}_${dateSuffix}.csv`,
         [
           "Medicine",
+          "Inventory Section / Label",
           "Category",
           "Batch Number",
           "Batch Quantity Remaining",
@@ -186,6 +245,7 @@ export const exportReportCsv = async (
         ],
         rows.map((item) => [
           item.medicine,
+          item.inventorySection,
           item.category,
           item.batchNumber,
           item.quantityRemaining,
@@ -238,6 +298,7 @@ export const exportReportCsv = async (
         `Reorder_Report_${dateSuffix}.csv`,
         [
           "Medicine",
+          "Inventory Section / Label",
           "Category",
           "Current Stock",
           "Unit",
@@ -248,6 +309,7 @@ export const exportReportCsv = async (
         ],
         reorder.map((item) => [
           item.medicine,
+          item.inventorySection,
           item.category,
           item.currentStock,
           item.unit,
@@ -265,9 +327,10 @@ export const exportReportCsv = async (
       sendCsv(
         res,
         `Medication_Consumption_${dateSuffix}.csv`,
-        ["Medication", "Unit", "Quantity Dispensed", "Students / Dispense Transactions"],
+        ["Medication", "Inventory Section / Label", "Unit", "Quantity Dispensed", "Students / Dispense Transactions"],
         usage.map((item) => [
           item.name,
+          item.inventorySection,
           item.unit,
           item.quantityDispensed,
           item.dispenseCount,
@@ -314,6 +377,7 @@ export const exportReportCsv = async (
         `Medication_Inventory_Report_${dateSuffix}.csv`,
         [
           "Name of Medication",
+          "Inventory Section / Label",
           "Date Medication Received",
           "Total Number Prescribed",
           "Total Remaining Stock On Hand",
@@ -322,6 +386,7 @@ export const exportReportCsv = async (
         ],
         medicationReport.map((item) => [
           item.name,
+          item.inventorySection,
           item.dateReceived,
           item.totalPrescribed,
           item.remainingStock,
@@ -342,9 +407,10 @@ export const exportReportCsv = async (
       sendCsv(
         res,
         `${type === "inventory-stock" ? "Inventory_Stock" : "Medicine_Expiry"}_${dateSuffix}.csv`,
-        ["Medicine", "Category", "Quantity", "Unit", "Low Stock Threshold", "Expiry Date", "Status"],
+        ["Medicine", "Inventory Section / Label", "Category", "Quantity", "Unit", "Low Stock Threshold", "Expiry Date", "Status"],
         rows.map((item) => [
           item.name,
+          item.inventorySection,
           item.category,
           item.quantity,
           item.unit,
@@ -361,9 +427,10 @@ export const exportReportCsv = async (
       sendCsv(
         res,
         `Medicine_Usage_${dateSuffix}.csv`,
-        ["Medicine", "Unit", "Quantity Dispensed", "Dispense Transactions"],
+        ["Medicine", "Inventory Section / Label", "Unit", "Quantity Dispensed", "Dispense Transactions"],
         usage.map((item) => [
           item.name,
+          item.inventorySection,
           item.unit,
           item.quantityDispensed,
           item.dispenseCount,

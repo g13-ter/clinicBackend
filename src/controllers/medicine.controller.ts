@@ -18,7 +18,7 @@ const userService = new UserService();
 export const createMedicine = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const userId = getAuthenticatedUser(req).id;
-    const { name, category, quantity, unit, expiryDate, lowStockThreshold, supplier, dateReceived, batchNumber } = req.body;
+    const { name, category, inventorySection, quantity, unit, expiryDate, lowStockThreshold, supplier, dateReceived, batchNumber } = req.body;
     const receivedAt = dateReceived ? new Date(dateReceived) : new Date();
     await assertInventoryPeriodOpen(receivedAt);
 
@@ -26,6 +26,7 @@ export const createMedicine = async (req: Request, res: Response, next: NextFunc
       const created = await medicineService.createMedicine({
         name,
         category,
+        inventorySection,
         quantity,
         unit,
         expiryDate,

@@ -69,6 +69,7 @@ describe("Medicine Inventory - Create (nurse only)", () => {
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
         name: `TEST Paracetamol ${Date.now()}`,
+        inventorySection: "Tablet Form",
         quantity: 5,
         unit: "tablets",
         lowStockThreshold: 10,
@@ -78,6 +79,7 @@ describe("Medicine Inventory - Create (nurse only)", () => {
       });
 
     expect(res.status).toBe(201);
+    expect(res.body.data.inventorySection).toBe("Tablet Form");
 
     createdMedicineId = res.body.data._id;
     const initialMovement = await StockMovement.findOne({
@@ -308,6 +310,7 @@ describe("Medicine Purchasing - New items", () => {
         itemName: "TEST Cetirizine",
         unit: "tablets",
         category: "Antihistamine",
+        inventorySection: "Tablet Form",
         quantityRequested: 100,
         reason: "Needed for allergy cases",
       });
@@ -315,6 +318,7 @@ describe("Medicine Purchasing - New items", () => {
     expect(response.status).toBe(201);
     expect(response.body.data.requestType).toBe("new_item");
     expect(response.body.data.itemName).toBe("TEST Cetirizine");
+    expect(response.body.data.inventorySection).toBe("Tablet Form");
     expect(response.body.data.medicineId).toBeUndefined();
     createdPurchaseRequestId = response.body.data._id;
   });

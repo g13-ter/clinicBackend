@@ -173,6 +173,32 @@ export const prescribedItemSchema = z.object({
   medicineId: z.string().min(1, "Medicine ID is required"),
   quantity: z.number().int().min(1, "Quantity must be at least 1"),
   instructions: z.string().optional(),
+  route: z.string().trim().min(1, "Administration route is required").optional(),
+  scheduledTime: z.string().trim().min(1, "Administration time or frequency is required").optional(),
+});
+
+export const dispenseMedicationSchema = z.object({
+  confirmedIdentity: z.literal(true, { error: "Confirm the student's identity" }),
+  confirmedMedication: z.literal(true, { error: "Confirm the medication and dose" }),
+  confirmedAllergies: z.literal(true, { error: "Confirm allergies and medical alerts" }),
+  confirmedRouteTime: z.literal(true, { error: "Confirm the route and administration time" }),
+  administrationNotes: z.string().trim().max(1000).optional(),
+});
+
+export const notGivenMedicationSchema = z.object({
+  reason: z.enum([
+    "student_refused",
+    "allergy_concern",
+    "insufficient_stock",
+    "clarification_required",
+    "doctor_cancelled",
+    "other",
+  ]),
+  notes: z.string().trim().min(3, "Please explain why the medication was not given").max(1000),
+});
+
+export const adverseReactionSchema = z.object({
+  details: z.string().trim().min(3, "Describe the observed reaction").max(2000),
 });
 
 export const createMedicalHistorySchema = z.object({
@@ -238,8 +264,9 @@ export const declineAppointmentSchema = z.object({
 // ===== MEDICINE =====
 
 export const createMedicineSchema = z.object({
-  name: z.string().min(1, "Medicine name is required"),
+  name: z.string().min(1, "Item name is required"),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   quantity: z.number().int().min(0, "Quantity cannot be negative"),
   unit: z.string().min(1, "Unit is required"),
   expiryDate: z.coerce.date().optional(),
@@ -257,8 +284,9 @@ export const createMedicineSchema = z.object({
   });
   
 export const updateMedicineSchema = z.object({
-  name: z.string().min(1, "Medicine name is required").optional(),
+  name: z.string().min(1, "Item name is required").optional(),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   unit: z.string().min(1, "Unit is required").optional(),
   lowStockThreshold: z.number().int().min(0).optional(),
   supplier: z.string().optional(),
@@ -286,19 +314,43 @@ export const monthlyInventoryDraftSchema = z.object({
   })),
 });
 
+export const createInventoryLabelSchema = z.object({
+  name: z.string().trim().min(1, "Label name is required").max(80),
+  description: z.string().trim().max(300).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Choose a valid label color").optional(),
+});
+
+export const updateInventoryLabelSchema = createInventoryLabelSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one label field is required",
+);
+
+export const reorderInventoryLabelsSchema = z.object({
+  labelIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/)).min(1),
+});
+
+export const assignInventoryLabelSchema = z.object({
+  medicineIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/)).min(1, "Select at least one inventory item"),
+});
+
+export const mergeInventoryLabelsSchema = z.object({
+  targetLabelId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Choose a target label"),
+});
+
 
 // ===== PURCHASE REQUEST =====
 
 export const createPurchaseRequestSchema = z.object({
   medicineId: z.string().min(1).optional(),
-  itemName: z.string().min(1, "Medicine name is required").optional(),
+  itemName: z.string().min(1, "Item name is required").optional(),
   unit: z.string().min(1, "Unit is required").optional(),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   quantityRequested: z.number().int().min(1, "Quantity must be at least 1"),
   reason: z.string().min(1, "Reason is required"),
 }).superRefine((value, ctx) => {
   if (!value.medicineId && !value.itemName) {
-    ctx.addIssue({ code: "custom", message: "Select an inventory item or enter a new medicine name", path: ["itemName"] });
+    ctx.addIssue({ code: "custom", message: "Select an inventory item or enter a new item name", path: ["itemName"] });
   }
   if (!value.medicineId && !value.unit) {
     ctx.addIssue({ code: "custom", message: "Unit is required for a new medicine", path: ["unit"] });

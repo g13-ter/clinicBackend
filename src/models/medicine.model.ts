@@ -3,6 +3,7 @@ import mongoose, { Schema, Document } from "mongoose";
 export interface IMedicine extends Document {
   name: string;
   category?: string;
+  inventorySection?: string;
   quantity: number;
   unit: string;
   expiryDate: Date;
@@ -26,6 +27,12 @@ const MedicineSchema = new Schema<IMedicine>(
     // Free text keeps categories configurable.
     category: {
       type: String,
+    },
+
+    // Display heading used to group items in the inventory register.
+    inventorySection: {
+      type: String,
+      trim: true,
     },
 
     quantity: {

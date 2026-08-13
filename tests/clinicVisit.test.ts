@@ -267,6 +267,94 @@ describe("Clinic Visits - Archive (admin only)", () => {
 });
 
 describe("Clinic Visits - Field-level clinical permissions", () => {
+  it("allows a DOCTOR to start an emergency consultation without waiting for triage", async () => {
+    const visit = await ClinicVisit.create({
+      patientId: testPatientId,
+      complaint: "TEST emergency consultation",
+      recordedBy: nurseId,
+      status: "triage",
+      isEmergency: true,
+      emergencyDetails: "Immediate breathing difficulty",
+    });
+
+    const res = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "in_consultation" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("in_consultation");
+    expect(String(res.body.data.assignedDoctorId)).toBe(doctorId);
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
+
+  it("still blocks a normal visit from starting before nurse triage is ready", async () => {
+    const visit = await ClinicVisit.create({
+      patientId: testPatientId,
+      complaint: "TEST normal consultation",
+      recordedBy: nurseId,
+      status: "triage",
+      isEmergency: false,
+    });
+
+    const res = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({ status: "in_consultation" });
+
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/finish triage/i);
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
+
+  it("allows a NURSE to record and complete a nursing assessment", async () => {
+    const visit = await ClinicVisit.create({
+      patientId: testPatientId,
+      complaint: "TEST nursing assessment",
+      recordedBy: nurseId,
+    });
+
+    const assessment = await request(app)
+      .put(`/api/visits/${visit._id}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        nursingAssessment: "Mild headache after physical activity",
+        nursingInterventions: "Rested and hydrated in the clinic",
+      });
+    expect(assessment.status).toBe(200);
+    expect(assessment.body.data.nursingAssessment).toMatch(/mild headache/i);
+
+    const completed = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ status: "completed", closureOutcome: "returned_to_class" });
+    expect(completed.status).toBe(200);
+    expect(completed.body.data.status).toBe("completed");
+    expect(completed.body.data.closureOutcome).toBe("returned_to_class");
+
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
+
+  it("does not let a NURSE complete an active physician consultation as an assessment", async () => {
+    const visit = await ClinicVisit.create({
+      patientId: testPatientId,
+      complaint: "TEST physician-claimed visit",
+      recordedBy: nurseId,
+      assignedDoctorId: doctorId,
+      status: "in_consultation",
+      readyForDoctor: true,
+    });
+
+    const res = await request(app)
+      .put(`/api/visits/${visit._id}/status`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ status: "completed", closureOutcome: "returned_to_class" });
+    expect(res.status).toBe(409);
+    expect(res.body.message).toMatch(/claimed by a doctor/i);
+
+    await ClinicVisit.findByIdAndDelete(visit._id);
+  });
+
   it("blocks a DOCTOR from changing nurse-recorded vital signs", async () => {
     const assignedVisit = await ClinicVisit.create({
       patientId: testPatientId,

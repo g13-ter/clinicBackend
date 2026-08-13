@@ -13,7 +13,7 @@ interface CreateNotificationInput {
   title: string;
   message: string;
   link: string;
-  resourceType: "Appointment" | "ClinicVisit";
+  resourceType: "Appointment" | "ClinicVisit" | "MedicalHistory";
   resourceId: string;
   dedupeKey: string;
   session?: ClientSession;
@@ -49,6 +49,26 @@ export async function notifyActiveDoctors(
         ...input,
         userId: String(doctor._id),
         dedupeKey: `${input.dedupeKey}:${doctor._id}`,
+      }),
+    ),
+  );
+}
+
+export async function notifyActiveNurses(
+  input: Omit<CreateNotificationInput, "userId" | "dedupeKey"> & { dedupeKey: string },
+): Promise<void> {
+  const nurses = await User.find({
+    role: "nurse",
+    isActive: { $ne: false },
+    isAvailable: { $ne: false },
+  }).select("_id");
+
+  await Promise.all(
+    nurses.map((nurse) =>
+      createInAppNotification({
+        ...input,
+        userId: String(nurse._id),
+        dedupeKey: `${input.dedupeKey}:${nurse._id}`,
       }),
     ),
   );

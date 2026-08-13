@@ -74,6 +74,7 @@ export interface ReportStats {
 
 export interface InventoryExportRow {
   name: string;
+  inventorySection: string;
   category: string;
   quantity: number;
   unit: string;
@@ -84,6 +85,7 @@ export interface InventoryExportRow {
 
 export interface MedicineUsageExportRow {
   name: string;
+  inventorySection: string;
   unit: string;
   quantityDispensed: number;
   dispenseCount: number;
@@ -91,6 +93,7 @@ export interface MedicineUsageExportRow {
 
 export interface MedicationInventoryReportRow {
   name: string;
+  inventorySection: string;
   dateReceived: Date | null;
   totalPrescribed: number;
   remainingStock: number;
@@ -123,6 +126,7 @@ export interface AnnualMedicationReport {
 
 export interface CurrentStockBatchRow {
   medicine: string;
+  inventorySection: string;
   category: string;
   batchNumber: string;
   quantityRemaining: number;
@@ -148,6 +152,7 @@ export interface StockMovementExportRow {
 
 export interface ReorderExportRow {
   medicine: string;
+  inventorySection: string;
   category: string;
   currentStock: number;
   unit: string;
@@ -283,7 +288,7 @@ export class ReportService {
 
   async getInventoryExport(): Promise<InventoryExportRow[]> {
     const medicines = await Medicine.find()
-      .select("name category quantity unit lowStockThreshold expiryDate")
+      .select("name category inventorySection quantity unit lowStockThreshold expiryDate")
       .sort({ name: 1 })
       .lean();
     const now = new Date();
@@ -300,6 +305,7 @@ export class ReportService {
 
       return {
         name: medicine.name,
+        inventorySection: medicine.inventorySection?.trim() || "Uncategorized",
         category: medicine.category ?? "",
         quantity: medicine.quantity,
         unit: medicine.unit,
@@ -313,7 +319,7 @@ export class ReportService {
   async getCurrentStockByBatch(): Promise<CurrentStockBatchRow[]> {
     const [medicines, batches] = await Promise.all([
       Medicine.find()
-        .select("name category quantity unit expiryDate supplier dateReceived lowStockThreshold")
+        .select("name category inventorySection quantity unit expiryDate supplier dateReceived lowStockThreshold")
         .sort({ name: 1 })
         .lean(),
       InventoryBatch.find()
@@ -353,6 +359,7 @@ export class ReportService {
       if (legacyQuantity > 0 || medicineBatches.length === 0) {
         rows.push({
           medicine: medicine.name,
+          inventorySection: medicine.inventorySection?.trim() || "Uncategorized",
           category: medicine.category ?? "",
           batchNumber: "Legacy / unbatched",
           quantityRemaining: legacyQuantity || medicine.quantity,
@@ -367,6 +374,7 @@ export class ReportService {
       for (const batch of medicineBatches) {
         rows.push({
           medicine: medicine.name,
+          inventorySection: medicine.inventorySection?.trim() || "Uncategorized",
           category: medicine.category ?? "",
           batchNumber: batch.batchNumber,
           quantityRemaining: batch.quantityRemaining,
@@ -416,7 +424,7 @@ export class ReportService {
   async getReorderExport(): Promise<ReorderExportRow[]> {
     const [medicines, pendingOrders] = await Promise.all([
       Medicine.find()
-        .select("name category quantity unit lowStockThreshold")
+        .select("name category inventorySection quantity unit lowStockThreshold")
         .sort({ name: 1 })
         .lean(),
       PurchaseRequest.aggregate<{ _id: unknown; quantity: number }>([
@@ -440,6 +448,7 @@ export class ReportService {
         const targetStock = Math.max(medicine.lowStockThreshold * 2, 1);
         return {
           medicine: medicine.name,
+          inventorySection: medicine.inventorySection?.trim() || "Uncategorized",
           category: medicine.category ?? "",
           currentStock: medicine.quantity,
           unit: medicine.unit,
@@ -481,6 +490,7 @@ export class ReportService {
         $project: {
           _id: 0,
           name: { $ifNull: ["$medicine.name", "Archived medicine"] },
+          inventorySection: { $ifNull: ["$medicine.inventorySection", "Uncategorized"] },
           unit: 1,
           quantityDispensed: 1,
           dispenseCount: 1,
@@ -541,7 +551,7 @@ export class ReportService {
 
     const [medicines, dispenseTotals, batches] = await Promise.all([
       Medicine.find()
-        .select("name dateReceived quantity unit expiryDate lowStockThreshold")
+        .select("name inventorySection category dateReceived quantity unit expiryDate lowStockThreshold")
         .sort({ name: 1 })
         .lean(),
       MedicineDispense.aggregate<{ _id: unknown; totalPrescribed: number }>([
@@ -594,6 +604,7 @@ export class ReportService {
 
       return {
         name: medicine.name,
+        inventorySection: medicine.inventorySection?.trim() || medicine.category?.trim() || "Uncategorized",
         dateReceived,
         totalPrescribed: prescribedByMedicine.get(String(medicine._id)) ?? 0,
         remainingStock: medicine.quantity,
@@ -645,8 +656,8 @@ export class ReportService {
 
     const [medicines, usage] = await Promise.all([
       Medicine.find()
-        .select("name category unit quantity")
-        .sort({ category: 1, name: 1 })
+        .select("name category inventorySection unit quantity")
+        .sort({ inventorySection: 1, category: 1, name: 1 })
         .lean(),
       MedicineDispense.aggregate<{
         _id: { medicineId: unknown; month: string };
@@ -687,7 +698,10 @@ export class ReportService {
         const medicineUsage = usageByMedicine.get(String(medicine._id));
         const monthlyConsumed = months.map((month) => medicineUsage?.get(month.key) ?? 0);
         return {
-          category: medicine.category?.trim() || "UNCATEGORIZED",
+          category:
+            medicine.inventorySection?.trim() ||
+            medicine.category?.trim() ||
+            "UNCATEGORIZED",
           name: medicine.name,
           unit: medicine.unit,
           monthlyConsumed,

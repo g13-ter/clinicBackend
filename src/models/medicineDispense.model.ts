@@ -1,7 +1,8 @@
 import mongoose, { Document, Schema } from "mongoose";
 
 export interface IMedicineDispense extends Document {
-  visitId: mongoose.Types.ObjectId;
+  visitId?: mongoose.Types.ObjectId;
+  medicalHistoryId: mongoose.Types.ObjectId;
   medicineId: mongoose.Types.ObjectId;
   quantity: number;
   unit: string;
@@ -11,7 +12,8 @@ export interface IMedicineDispense extends Document {
 }
 
 const MedicineDispenseSchema = new Schema<IMedicineDispense>({
-  visitId: { type: Schema.Types.ObjectId, ref: "ClinicVisit", required: true, index: true },
+  visitId: { type: Schema.Types.ObjectId, ref: "ClinicVisit", index: true },
+  medicalHistoryId: { type: Schema.Types.ObjectId, ref: "MedicalHistory", required: true, index: true },
   medicineId: { type: Schema.Types.ObjectId, ref: "Medicine", required: true },
   quantity: { type: Number, required: true, min: 1 },
   unit: { type: String, required: true },

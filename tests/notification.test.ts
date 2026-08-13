@@ -92,4 +92,26 @@ describe("In-app notifications", () => {
     expect(response.body.data.updated).toBe(1);
     expect(await InAppNotification.countDocuments({ userId: doctorId, readAt: { $exists: false } })).toBe(0);
   });
+
+  it("supports nurse medication-order notifications", async () => {
+    const resourceId = new mongoose.Types.ObjectId().toString();
+    await createInAppNotification({
+      userId: nurseId,
+      kind: "medication_order",
+      title: "Medication requested by doctor",
+      message: "Test Student: Cetirizine × 1 tablet — After meals",
+      link: "/patients/test-student",
+      resourceType: "MedicalHistory",
+      resourceId,
+      dedupeKey: `TEST:notification:medication:${nurseId}`,
+    });
+
+    const response = await request(app)
+      .get("/api/notifications")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(response.status).toBe(200);
+    expect(response.body.data.items).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "medication_order", resourceId }),
+    ]));
+  });
 });

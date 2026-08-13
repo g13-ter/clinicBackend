@@ -15,13 +15,14 @@ const userService = new UserService();
 export const createPurchaseRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const requestingUser = getAuthenticatedUser(req);
-    const { medicineId, itemName, unit, category, quantityRequested, reason } = req.body;
+    const { medicineId, itemName, unit, category, inventorySection, quantityRequested, reason } = req.body;
 
     const purchaseRequest = await purchaseRequestService.createRequest({
       medicineId,
       itemName,
       unit,
       category,
+      inventorySection,
       quantityRequested,
       reason,
       requestedBy: getAuthenticatedObjectId(req),

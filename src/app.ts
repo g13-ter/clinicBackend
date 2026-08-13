@@ -22,6 +22,7 @@ import internalRoutes from "./routes/internal.routes";
 import dashboardRoutes from "./routes/dashboard.routes";
 import systemSettingsRoutes from "./routes/systemSettings.routes";
 import notificationRoutes from "./routes/notification.routes";
+import inventoryLabelRoutes from "./routes/inventoryLabel.routes";
 import { requestLogger } from "./middleware/requestLogger.middleware";
 import webhookRoutes from "./routes/webhook.routes";
 
@@ -114,6 +115,7 @@ app.use("/api/medical-history", medicalHistoryRoutes);
 app.use("/api/appointments", appointmentRoutes);
 
 app.use("/api/medicines", medicineRoutes);
+app.use("/api/inventory-labels", inventoryLabelRoutes);
 
 app.use("/api/audit-logs", auditLogRoutes);
 
