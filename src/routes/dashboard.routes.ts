@@ -1,5 +1,5 @@
 import express from "express";
-import { getDashboardStats } from "../controllers/dashboard.controller";
+import { getAnalyticsStats, getDashboardStats } from "../controllers/dashboard.controller";
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 
@@ -18,7 +18,7 @@ router.get(
   "/analytics",
   protect,
   allowRoles("doctor", "nurse"),
-  getDashboardStats,
+  getAnalyticsStats,
 );
 
 export default router;

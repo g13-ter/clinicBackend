@@ -36,14 +36,18 @@ export const updateUserSchema = z.object({
 
 // ===== PATIENT =====
 
-export const createPatientSchema = z.object({
-  studentId: z.string().min(1, "Student ID is required"),
+const patientPayloadSchema = z.object({
+  patientType: z.enum(["student", "teacher", "staff"]).default("student"),
+  studentId: z.string().min(1).optional(),
+  employeeId: z.string().min(1).optional(),
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   age: z.number().int().min(1).max(100, "Age must be realistic"),
   gender: z.enum(["Male", "Female"]),
-  course: z.string().min(1),
-  yearLevel: z.number().int().min(1).max(10),
+  course: z.string().min(1).optional(),
+  yearLevel: z.number().int().min(1).max(10).optional(),
+  department: z.string().trim().min(1).max(200).optional(),
+  position: z.string().trim().min(1).max(200).optional(),
   contactNumber: z.string().min(7, "Contact number looks too short"),
   email: z.string().email("Must be a valid email").optional(),
   address: z.string().min(1),
@@ -51,6 +55,8 @@ export const createPatientSchema = z.object({
   bloodType: z.string().max(10).optional(),
   guardianName: z.string().min(1).optional(),
   guardianContactNumber: z.string().min(7).optional(),
+  emergencyContactName: z.string().trim().min(1).max(200).optional(),
+  emergencyContactNumber: z.string().min(7).optional(),
   healthConditions: z.string().optional(),
   medicalAlerts: z.object({
     allergies: z.array(z.string().min(1)).optional(),
@@ -67,7 +73,21 @@ export const createPatientSchema = z.object({
   })).optional(),
 });
 
-export const updatePatientSchema = createPatientSchema.partial();
+export const createPatientSchema = patientPayloadSchema.superRefine((value, ctx) => {
+  if (value.patientType === "student") {
+    if (!value.studentId) ctx.addIssue({ code: "custom", path: ["studentId"], message: "Student ID is required" });
+    if (!value.course) ctx.addIssue({ code: "custom", path: ["course"], message: "Course is required" });
+    if (!value.yearLevel) ctx.addIssue({ code: "custom", path: ["yearLevel"], message: "Year level is required" });
+  } else {
+    if (!value.employeeId) ctx.addIssue({ code: "custom", path: ["employeeId"], message: "Employee ID is required" });
+    if (!value.department) ctx.addIssue({ code: "custom", path: ["department"], message: "Department is required" });
+    if (!value.position) ctx.addIssue({ code: "custom", path: ["position"], message: "Position is required" });
+    if (!value.emergencyContactName) ctx.addIssue({ code: "custom", path: ["emergencyContactName"], message: "Emergency contact name is required" });
+    if (!value.emergencyContactNumber) ctx.addIssue({ code: "custom", path: ["emergencyContactNumber"], message: "Emergency contact number is required" });
+  }
+});
+
+export const updatePatientSchema = patientPayloadSchema.partial();
 
 export const updateClinicalProfileSchema = z.object({
   familyHistory: z.string().max(2000).optional(),
@@ -173,6 +193,32 @@ export const prescribedItemSchema = z.object({
   medicineId: z.string().min(1, "Medicine ID is required"),
   quantity: z.number().int().min(1, "Quantity must be at least 1"),
   instructions: z.string().optional(),
+  route: z.string().trim().min(1, "Administration route is required").optional(),
+  scheduledTime: z.string().trim().min(1, "Administration time or frequency is required").optional(),
+});
+
+export const dispenseMedicationSchema = z.object({
+  confirmedIdentity: z.literal(true, { error: "Confirm the student's identity" }),
+  confirmedMedication: z.literal(true, { error: "Confirm the medication and dose" }),
+  confirmedAllergies: z.literal(true, { error: "Confirm allergies and medical alerts" }),
+  confirmedRouteTime: z.literal(true, { error: "Confirm the route and administration time" }),
+  administrationNotes: z.string().trim().max(1000).optional(),
+});
+
+export const notGivenMedicationSchema = z.object({
+  reason: z.enum([
+    "student_refused",
+    "allergy_concern",
+    "insufficient_stock",
+    "clarification_required",
+    "doctor_cancelled",
+    "other",
+  ]),
+  notes: z.string().trim().min(3, "Please explain why the medication was not given").max(1000),
+});
+
+export const adverseReactionSchema = z.object({
+  details: z.string().trim().min(3, "Describe the observed reaction").max(2000),
 });
 
 export const createMedicalHistorySchema = z.object({
@@ -183,7 +229,8 @@ export const createMedicalHistorySchema = z.object({
   prescribedItems: z.array(prescribedItemSchema).optional(),
   labRequest: z.string().optional(),
   familyHistory: z.string().optional(),
-  allergies: z.string().optional()
+  allergies: z.string().optional(),
+  closureOutcome: z.enum(["returned_to_class", "sent_home", "guardian_pickup"]).optional(),
 });
 
 // Prescriptions are immutable after creation to keep inventory in sync.
@@ -238,8 +285,9 @@ export const declineAppointmentSchema = z.object({
 // ===== MEDICINE =====
 
 export const createMedicineSchema = z.object({
-  name: z.string().min(1, "Medicine name is required"),
+  name: z.string().min(1, "Item name is required"),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   quantity: z.number().int().min(0, "Quantity cannot be negative"),
   unit: z.string().min(1, "Unit is required"),
   expiryDate: z.coerce.date().optional(),
@@ -257,8 +305,9 @@ export const createMedicineSchema = z.object({
   });
   
 export const updateMedicineSchema = z.object({
-  name: z.string().min(1, "Medicine name is required").optional(),
+  name: z.string().min(1, "Item name is required").optional(),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   unit: z.string().min(1, "Unit is required").optional(),
   lowStockThreshold: z.number().int().min(0).optional(),
   supplier: z.string().optional(),
@@ -286,19 +335,43 @@ export const monthlyInventoryDraftSchema = z.object({
   })),
 });
 
+export const createInventoryLabelSchema = z.object({
+  name: z.string().trim().min(1, "Label name is required").max(80),
+  description: z.string().trim().max(300).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, "Choose a valid label color").optional(),
+});
+
+export const updateInventoryLabelSchema = createInventoryLabelSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "At least one label field is required",
+);
+
+export const reorderInventoryLabelsSchema = z.object({
+  labelIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/)).min(1),
+});
+
+export const assignInventoryLabelSchema = z.object({
+  medicineIds: z.array(z.string().regex(/^[0-9a-fA-F]{24}$/)).min(1, "Select at least one inventory item"),
+});
+
+export const mergeInventoryLabelsSchema = z.object({
+  targetLabelId: z.string().regex(/^[0-9a-fA-F]{24}$/, "Choose a target label"),
+});
+
 
 // ===== PURCHASE REQUEST =====
 
 export const createPurchaseRequestSchema = z.object({
   medicineId: z.string().min(1).optional(),
-  itemName: z.string().min(1, "Medicine name is required").optional(),
+  itemName: z.string().min(1, "Item name is required").optional(),
   unit: z.string().min(1, "Unit is required").optional(),
   category: z.string().optional(),
+  inventorySection: z.string().trim().max(80).optional(),
   quantityRequested: z.number().int().min(1, "Quantity must be at least 1"),
   reason: z.string().min(1, "Reason is required"),
 }).superRefine((value, ctx) => {
   if (!value.medicineId && !value.itemName) {
-    ctx.addIssue({ code: "custom", message: "Select an inventory item or enter a new medicine name", path: ["itemName"] });
+    ctx.addIssue({ code: "custom", message: "Select an inventory item or enter a new item name", path: ["itemName"] });
   }
   if (!value.medicineId && !value.unit) {
     ctx.addIssue({ code: "custom", message: "Unit is required for a new medicine", path: ["unit"] });

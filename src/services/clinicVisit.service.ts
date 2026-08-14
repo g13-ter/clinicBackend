@@ -4,12 +4,13 @@ import { PaginationParams } from "../utils/pagination";
 import { escapeRegex } from "../utils/regex";
 import Appointment from "../models/appointment.model";
 import { Types } from "mongoose";
+import Patient from "../models/patient.model";
 
 type VisitStatus = IClinicVisit["status"];
 
 const ALLOWED_TRANSITIONS: Record<VisitStatus, VisitStatus[]> = {
-  triage: ["ready_for_doctor", "referred", "cancelled"],
-  ready_for_doctor: ["in_consultation", "referred", "cancelled"],
+  triage: ["ready_for_doctor", "in_consultation", "completed", "referred", "cancelled"],
+  ready_for_doctor: ["in_consultation", "completed", "referred", "cancelled"],
   in_consultation: ["paused", "completed", "referred", "cancelled"],
   paused: ["in_consultation", "completed", "referred", "cancelled"],
   completed: [],
@@ -136,9 +137,17 @@ export class ClinicVisitService {
   }
 
   // Return all open visits in FIFO order.
-  async getQueue(): Promise<IClinicVisit[]> {
-    return await ClinicVisit.find({ isActive: true, status: { $in: ["triage", "ready_for_doctor", "in_consultation", "paused"] } })
-      .populate("patientId", "studentId firstName lastName")
+  async getQueue(patientType?: "student" | "teacher" | "staff"): Promise<IClinicVisit[]> {
+    const patientQuery: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType ? { patientType } : {};
+    const patientIds = patientType ? await Patient.find(patientQuery).distinct("_id") : undefined;
+    return await ClinicVisit.find({
+      isActive: true,
+      status: { $in: ["triage", "ready_for_doctor", "in_consultation", "paused"] },
+      ...(patientIds ? { patientId: { $in: patientIds } } : {}),
+    })
+      .populate("patientId", "patientType studentId employeeId firstName lastName department position course yearLevel")
       .populate("appointmentId", "appointmentDate reason status")
       .populate("assignedDoctorId", "name role")
       .populate("recordedBy", "name role")
@@ -159,7 +168,7 @@ export class ClinicVisitService {
     ].filter(Boolean);
     if (missingVitals.length > 0) {
       throw new AppError(
-        `Record ${missingVitals.join(", ")} before marking the student ready for doctor`,
+        `Record ${missingVitals.join(", ")} before marking the patient ready for doctor`,
         409,
       );
     }
@@ -188,7 +197,7 @@ export class ClinicVisitService {
     if (!before) throw new AppError("Clinic visit not found", 404);
     this.assertTransition(before.status, data.status);
     const allowedForRole: Record<"nurse" | "doctor", VisitStatus[]> = {
-      nurse: ["ready_for_doctor", "referred", "cancelled"],
+      nurse: ["ready_for_doctor", "completed", "referred", "cancelled"],
       doctor: ["in_consultation", "paused", "completed", "referred", "cancelled"],
     };
     if (!allowedForRole[role].includes(data.status)) {
@@ -212,6 +221,13 @@ export class ClinicVisitService {
       if (data.status === "in_consultation" && !before.readyForDoctor && !before.isEmergency) {
         throw new AppError("A nurse must finish triage before consultation starts", 409);
       }
+    }
+    if (
+      role === "nurse" &&
+      data.status === "completed" &&
+      (["in_consultation", "paused"].includes(before.status) || before.consultationFindings)
+    ) {
+      throw new AppError("A visit claimed by a doctor cannot be completed as a nursing assessment", 409);
     }
 
     const update: Partial<IClinicVisit> = {

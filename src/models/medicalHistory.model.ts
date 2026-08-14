@@ -7,6 +7,8 @@ export interface IPrescribedItem {
   quantity: number;
   unit: string; // snapshot, same reasoning as medicineName
   instructions?: string;
+  route?: string;
+  scheduledTime?: string;
 }
 
 export interface IMedicalHistory extends Document {
@@ -14,8 +16,19 @@ export interface IMedicalHistory extends Document {
   visitId?: mongoose.Types.ObjectId;
   diagnosis: string;
   prescription: string;
-  // Stock-linked items are validated and deducted at creation.
+  // Stock-linked items are ordered by an authorized doctor or covering nurse and dispensed by a nurse.
   prescribedItems?: IPrescribedItem[];
+  medicationStatus?: "pending" | "accepted" | "dispensing" | "dispensed" | "not_given" | "cancelled";
+  medicationClaimedBy?: mongoose.Types.ObjectId;
+  medicationClaimedAt?: Date;
+  medicationDispensedBy?: mongoose.Types.ObjectId;
+  medicationDispensedAt?: Date;
+  medicationAdministrationNotes?: string;
+  medicationNotGivenReason?: string;
+  medicationNotGivenNotes?: string;
+  medicationAdverseReaction?: string;
+  medicationAdverseReactionAt?: Date;
+  medicationAdverseReactionReportedBy?: mongoose.Types.ObjectId;
   labRequest?: string;
   familyHistory: string;
   allergies: string;
@@ -47,6 +60,8 @@ const PrescribedItemSchema = new Schema<IPrescribedItem>(
     instructions: {
       type: String,
     },
+    route: String,
+    scheduledTime: String,
   },
   { _id: false }
 );
@@ -74,6 +89,27 @@ const MedicalHistorySchema = new Schema<IMedicalHistory>(
       type: [PrescribedItemSchema],
       default: undefined,
     },
+
+    medicationStatus: {
+      type: String,
+      enum: ["pending", "accepted", "dispensing", "dispensed", "not_given", "cancelled"],
+    },
+
+    medicationClaimedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    medicationClaimedAt: Date,
+
+    medicationDispensedBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+    },
+
+    medicationDispensedAt: Date,
+    medicationAdministrationNotes: String,
+    medicationNotGivenReason: String,
+    medicationNotGivenNotes: String,
+    medicationAdverseReaction: String,
+    medicationAdverseReactionAt: Date,
+    medicationAdverseReactionReportedBy: { type: Schema.Types.ObjectId, ref: "User" },
 
     // Optional laboratory request, such as CBC or urinalysis.
     labRequest: {

@@ -1,13 +1,17 @@
 import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPatient extends Document {
+  patientType: "student" | "teacher" | "staff";
   studentId: string;
+  employeeId?: string;
   firstName: string;
   lastName: string;
   age: number;
   gender: string;
   course: string;
   yearLevel: number;
+  department?: string;
+  position?: string;
   contactNumber: string;
   email?: string;
   address: string;
@@ -15,6 +19,8 @@ export interface IPatient extends Document {
   bloodType?: string;
   guardianName?: string;
   guardianContactNumber?: string;
+  emergencyContactName?: string;
+  emergencyContactNumber?: string;
   healthConditions?: string;
   familyHistory?: string;
   pastMedicalHistory?: string;
@@ -37,12 +43,26 @@ export interface IPatient extends Document {
 
 const PatientSchema = new Schema<IPatient>(
   {
+    patientType: {
+      type: String,
+      enum: ["student", "teacher", "staff"],
+      default: "student",
+      required: true,
+      index: true,
+    },
     studentId: {
       type: String,
       required: true,
       unique: true,
       trim: true,
       uppercase: true,
+    },
+    employeeId: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      sparse: true,
+      index: true,
     },
 
     firstName: {
@@ -68,13 +88,17 @@ const PatientSchema = new Schema<IPatient>(
 
     course: {
       type: String,
-      required: true,
+      required: function (this: IPatient): boolean { return this.patientType === "student"; },
+      default: "",
     },
 
     yearLevel: {
       type: Number,
-      required: true,
+      required: function (this: IPatient): boolean { return this.patientType === "student"; },
+      default: 1,
     },
+    department: String,
+    position: String,
 
     contactNumber: {
       type: String,
@@ -95,6 +119,8 @@ const PatientSchema = new Schema<IPatient>(
     bloodType: String,
     guardianName: String,
     guardianContactNumber: String,
+    emergencyContactName: String,
+    emergencyContactNumber: String,
     healthConditions: String,
     familyHistory: String,
     pastMedicalHistory: String,

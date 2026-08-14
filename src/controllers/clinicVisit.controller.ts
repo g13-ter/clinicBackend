@@ -142,7 +142,11 @@ export const getTodayVisitCount = async (req: Request, res: Response, next: Next
 // GET QUEUE — clinic-wide list of currently open visits, not audit-logged
 export const getQueue = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const queue = await clinicVisitService.getQueue();
+    const requestedType = req.query.patientType as string | undefined;
+    if (requestedType && !["student", "teacher", "staff"].includes(requestedType)) {
+      throw new AppError("patientType must be student, teacher, or staff", 400);
+    }
+    const queue = await clinicVisitService.getQueue(requestedType as "student" | "teacher" | "staff" | undefined);
     const actor = getAuthenticatedUser(req);
     const isStaff = actor.role === "staff";
     const roleVisibleQueue = actor.role === "doctor"
@@ -171,7 +175,7 @@ export const getQueue = async (req: Request, res: Response, next: NextFunction):
           isActive: visit.isActive,
         }))
       : roleVisibleQueue;
-    res.status(200).json({ success: true, message: "Student queue retrieved successfully", data });
+    res.status(200).json({ success: true, message: "Patient queue retrieved successfully", data });
   } catch (error) {
     next(error);
   }

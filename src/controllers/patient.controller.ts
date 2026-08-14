@@ -30,19 +30,25 @@ const withCalculatedAge = (body: Record<string, unknown>): Record<string, unknow
 };
 
 const STAFF_PATIENT_FIELDS = [
+  "patientType",
   "studentId",
+  "employeeId",
   "firstName",
   "lastName",
   "age",
   "gender",
   "course",
   "yearLevel",
+  "department",
+  "position",
   "contactNumber",
   "email",
   "address",
   "dateOfBirth",
   "guardianName",
   "guardianContactNumber",
+  "emergencyContactName",
+  "emergencyContactNumber",
 ] as const;
 
 const staffPatientPayload = (body: Record<string, unknown>): Record<string, unknown> =>
@@ -55,20 +61,20 @@ const staffPatientPayload = (body: Record<string, unknown>): Record<string, unkn
 const toDemographicPatient = (patient: IPatient) => {
   const source = patient.toObject();
   const {
-    _id, studentId, firstName, lastName, age, gender, course, yearLevel,
+    _id, patientType, studentId, employeeId, firstName, lastName, age, gender, course, yearLevel, department, position,
     contactNumber, email, address, dateOfBirth, guardianName,
-    guardianContactNumber, isActive,
+    guardianContactNumber, emergencyContactName, emergencyContactNumber, isActive,
   } = source;
-  return { _id, studentId, firstName, lastName, age, gender, course, yearLevel, contactNumber, email, address, dateOfBirth, guardianName, guardianContactNumber, isActive };
+  return { _id, patientType, studentId, employeeId, firstName, lastName, age, gender, course, yearLevel, department, position, contactNumber, email, address, dateOfBirth, guardianName, guardianContactNumber, emergencyContactName, emergencyContactNumber, isActive };
 };
 
 const toAdminPatient = (patient: IPatient) => {
   const source = patient.toObject();
   const {
-    _id, studentId, firstName, lastName, gender, course, yearLevel,
+    _id, patientType, studentId, employeeId, firstName, lastName, gender, course, yearLevel, department, position,
     contactNumber, isActive,
   } = source;
-  return { _id, studentId, firstName, lastName, gender, course, yearLevel, contactNumber, isActive };
+  return { _id, patientType, studentId, employeeId, firstName, lastName, gender, course, yearLevel, department, position, contactNumber, isActive };
 };
 
 const patientForRole = (patient: IPatient, role: string) =>
@@ -101,7 +107,7 @@ export const createPatient = async (req: Request, res: Response, next: NextFunct
 
     res.status(201).json({
       success: true,
-      message: "Student created successfully",
+      message: "Patient created successfully",
       data: patientForRole(patient, authenticatedUser.role),
     });
   } catch (error) {
@@ -114,14 +120,18 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
   try {
     const includeInactive = req.query.includeInactive === "true";
     const search = req.query.search as string | undefined;
+    const requestedType = req.query.patientType as string | undefined;
+    const patientType = ["student", "teacher", "staff"].includes(requestedType ?? "")
+      ? requestedType as "student" | "teacher" | "staff"
+      : undefined;
     const pagination = getPaginationParams(req.query);
 
-    const { patients, total } = await patientService.getPatients(includeInactive, pagination, search);
+    const { patients, total } = await patientService.getPatients(includeInactive, pagination, search, patientType);
 
     const role = getAuthenticatedUser(req).role;
     res.status(200).json({
       success: true,
-      message: "Students retrieved successfully",
+      message: "Patients retrieved successfully",
       data: role === "admin"
         ? patients.map(toAdminPatient)
         : role === "staff"
@@ -138,8 +148,10 @@ export const getPatients = async (req: Request, res: Response, next: NextFunctio
 export const getPatientsBasic = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const search = req.query.search as string | undefined;
-    const patients = await patientService.getPatientsBasic(search);
-    res.status(200).json({ success: true, message: "Students retrieved successfully", data: patients });
+    const requestedType = req.query.patientType as string | undefined;
+    const patientType = ["student", "teacher", "staff"].includes(requestedType ?? "") ? requestedType as "student" | "teacher" | "staff" : undefined;
+    const patients = await patientService.getPatientsBasic(search, patientType);
+    res.status(200).json({ success: true, message: "Patients retrieved successfully", data: patients });
   } catch (error) {
     next(error);
   }
@@ -152,7 +164,7 @@ export const getPatientById = async (req: Request, res: Response, next: NextFunc
     const patient = await patientService.getPatientById(id);
 
     const isStaff = getAuthenticatedUser(req).role === "staff";
-    res.status(200).json({ success: true, message: "Student retrieved successfully", data: isStaff ? toDemographicPatient(patient) : patient });
+    res.status(200).json({ success: true, message: "Patient retrieved successfully", data: isStaff ? toDemographicPatient(patient) : patient });
   } catch (error) {
     next(error);
   }
@@ -183,7 +195,7 @@ export const updatePatient = async (req: Request, res: Response, next: NextFunct
 
     res.status(200).json({
       success: true,
-      message: "Student updated successfully",
+      message: "Patient updated successfully",
       data: patientForRole(after, authenticatedUser.role),
     });
   } catch (error) {
@@ -247,7 +259,7 @@ export const archivePatient = async (req: Request, res: Response, next: NextFunc
 
     res.status(200).json({
       success: true,
-      message: "Student archived successfully",
+      message: "Patient archived successfully",
       data: { _id: after._id, studentId: after.studentId, isActive: after.isActive },
     });
   } catch (error) {

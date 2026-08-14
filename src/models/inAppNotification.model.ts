@@ -6,7 +6,8 @@ export type InAppNotificationKind =
   | "appointment_rescheduled"
   | "appointment_cancelled"
   | "visit_ready"
-  | "emergency";
+  | "emergency"
+  | "medication_order";
 
 export interface IInAppNotification extends Document {
   userId: mongoose.Types.ObjectId;
@@ -14,7 +15,7 @@ export interface IInAppNotification extends Document {
   title: string;
   message: string;
   link: string;
-  resourceType: "Appointment" | "ClinicVisit";
+  resourceType: "Appointment" | "ClinicVisit" | "MedicalHistory";
   resourceId: string;
   readAt?: Date;
   dedupeKey: string;
@@ -34,13 +35,14 @@ const InAppNotificationSchema = new Schema<IInAppNotification>(
         "appointment_cancelled",
         "visit_ready",
         "emergency",
+        "medication_order",
       ],
       required: true,
     },
     title: { type: String, required: true, trim: true },
     message: { type: String, required: true, trim: true },
     link: { type: String, required: true },
-    resourceType: { type: String, enum: ["Appointment", "ClinicVisit"], required: true },
+    resourceType: { type: String, enum: ["Appointment", "ClinicVisit", "MedicalHistory"], required: true },
     resourceId: { type: String, required: true, index: true },
     readAt: Date,
     dedupeKey: { type: String, required: true, unique: true },

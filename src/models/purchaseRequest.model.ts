@@ -17,6 +17,7 @@ export interface IPurchaseRequest extends Document {
                      // request stays readable even if the medicine is later renamed/removed
   unit?: string;
   category?: string;
+  inventorySection?: string;
   quantityRequested: number;
   reason: string;
   status: PurchaseRequestStatus;
@@ -53,6 +54,7 @@ const PurchaseRequestSchema = new Schema<IPurchaseRequest>(
 
     unit: String,
     category: String,
+    inventorySection: String,
 
     quantityRequested: {
       type: Number,

@@ -13,6 +13,7 @@ interface CreatePurchaseRequestInput {
   itemName?: string;
   unit?: string;
   category?: string;
+  inventorySection?: string;
   quantityRequested: number;
   reason: string;
   requestedBy: Types.ObjectId;
@@ -40,6 +41,7 @@ export class PurchaseRequestService {
         itemName: medicine.name,
         unit: medicine.unit,
         ...(medicine.category ? { category: medicine.category } : {}),
+        ...(medicine.inventorySection ? { inventorySection: medicine.inventorySection } : {}),
         quantityRequested: data.quantityRequested,
         reason: data.reason,
         requestedBy: data.requestedBy,
@@ -47,7 +49,7 @@ export class PurchaseRequestService {
     }
 
     if (!data.itemName?.trim() || !data.unit?.trim()) {
-      throw new AppError("Medicine name and unit are required for a new item", 400);
+      throw new AppError("Item name and unit are required for a new item", 400);
     }
 
     return await PurchaseRequest.create({
@@ -55,6 +57,7 @@ export class PurchaseRequestService {
       itemName: data.itemName.trim(),
       unit: data.unit.trim(),
       ...(data.category?.trim() ? { category: data.category.trim() } : {}),
+      ...(data.inventorySection?.trim() ? { inventorySection: data.inventorySection.trim() } : {}),
       quantityRequested: data.quantityRequested,
       reason: data.reason,
       requestedBy: data.requestedBy,
@@ -209,6 +212,7 @@ export class PurchaseRequestService {
           unit: before.unit || "units",
           lowStockThreshold: 10,
           ...(before.category ? { category: before.category } : {}),
+          ...(before.inventorySection ? { inventorySection: before.inventorySection } : {}),
           ...(data.supplier || before.supplier ? { supplier: data.supplier || before.supplier } : {}),
           lastUpdatedBy: data.receivedBy,
         }], session ? { session } : {});

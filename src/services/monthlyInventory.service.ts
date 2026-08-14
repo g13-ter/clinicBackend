@@ -110,6 +110,7 @@ export class MonthlyInventoryService {
         reorderRequired: calculatedEndingBalance <= medicine.lowStockThreshold,
       };
       if (medicine.category) item.category = medicine.category;
+      if (medicine.inventorySection) item.inventorySection = medicine.inventorySection;
       return item;
     });
   }

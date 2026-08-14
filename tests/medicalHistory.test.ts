@@ -77,7 +77,7 @@ afterAll(async () => {
 });
 
 
-describe("Medical History - Create (doctor only)", () => {
+describe("Medical History - Create", () => {
 
   it("allows a DOCTOR to add a diagnosis entry", async () => {
 
@@ -136,7 +136,7 @@ describe("Medical History - Create (doctor only)", () => {
 
   });
 
-  it("saves a consultation and deducts prescribed stock only once", async () => {
+  it("lets the doctor prescribe and the nurse dispense stock only once", async () => {
     const visit = await ClinicVisit.create({
       patientId: testPatientId,
       complaint: "TEST idempotent consultation",
@@ -179,9 +179,64 @@ describe("Medical History - Create (doctor only)", () => {
     expect(first.status).toBe(201);
     expect(duplicate.status).toBe(409);
     expect(await MedicalHistory.countDocuments({ visitId })).toBe(1);
+    expect(first.body.data.medicationStatus).toBe("pending");
+    expect(await MedicineDispense.countDocuments({ visitId })).toBe(0);
+    expect((await Medicine.findById(medicineId))?.quantity).toBe(20);
+    expect((await ClinicVisit.findById(visitId))?.status).toBe("completed");
+
+    const nurseNotifications = await request(app)
+      .get("/api/notifications")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    const medicationOrder = nurseNotifications.body.data.items.find(
+      (notification: { kind: string; resourceId: string }) =>
+        notification.kind === "medication_order" && notification.resourceId === first.body.data._id,
+    );
+    expect(medicationOrder).toBeDefined();
+    expect(medicationOrder.message).toContain("TEST HistoryPatient");
+    expect(medicationOrder.message).toContain("Every 8 hours");
+
+    const doctorCannotDispense = await request(app)
+      .post(`/api/medical-history/${first.body.data._id}/dispense`)
+      .set("Authorization", `Bearer ${doctorToken}`)
+      .send({});
+    expect(doctorCannotDispense.status).toBe(403);
+
+    const missingChecklist = await request(app)
+      .post(`/api/medical-history/${first.body.data._id}/dispense`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+    expect(missingChecklist.status).toBe(400);
+
+    const claimed = await request(app)
+      .post(`/api/medical-history/${first.body.data._id}/claim`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+    expect(claimed.status).toBe(200);
+    expect(claimed.body.data.medicationStatus).toBe("accepted");
+
+    const dispensed = await request(app)
+      .post(`/api/medical-history/${first.body.data._id}/dispense`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        confirmedIdentity: true,
+        confirmedMedication: true,
+        confirmedAllergies: true,
+        confirmedRouteTime: true,
+      });
+    const duplicateDispense = await request(app)
+      .post(`/api/medical-history/${first.body.data._id}/dispense`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        confirmedIdentity: true,
+        confirmedMedication: true,
+        confirmedAllergies: true,
+        confirmedRouteTime: true,
+      });
+    expect(dispensed.status).toBe(200);
+    expect(dispensed.body.data.medicationStatus).toBe("dispensed");
+    expect(duplicateDispense.status).toBe(409);
     expect(await MedicineDispense.countDocuments({ visitId })).toBe(1);
     expect((await Medicine.findById(medicineId))?.quantity).toBe(18);
-    expect((await ClinicVisit.findById(visitId))?.status).toBe("completed");
   });
 
   it("dispenses from the earliest-expiring batch first", async () => {
@@ -236,6 +291,26 @@ describe("Medical History - Create (doctor only)", () => {
       });
 
     expect(response.status).toBe(201);
+    expect((await InventoryBatch.findById(earlierBatch._id))?.quantityRemaining).toBe(4);
+    expect((await InventoryBatch.findById(laterBatch._id))?.quantityRemaining).toBe(6);
+    expect((await Medicine.findById(medicineId))?.quantity).toBe(10);
+
+    const claimResponse = await request(app)
+      .post(`/api/medical-history/${response.body.data._id}/claim`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({});
+    expect(claimResponse.status).toBe(200);
+
+    const dispenseResponse = await request(app)
+      .post(`/api/medical-history/${response.body.data._id}/dispense`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        confirmedIdentity: true,
+        confirmedMedication: true,
+        confirmedAllergies: true,
+        confirmedRouteTime: true,
+      });
+    expect(dispenseResponse.status).toBe(200);
     expect((await InventoryBatch.findById(earlierBatch._id))?.quantityRemaining).toBe(0);
     expect((await InventoryBatch.findById(laterBatch._id))?.quantityRemaining).toBe(5);
     expect((await Medicine.findById(medicineId))?.quantity).toBe(5);
@@ -247,18 +322,46 @@ describe("Medical History - Create (doctor only)", () => {
   });
 
 
-  it("blocks a NURSE from creating a medical history entry (read-only role)", async () => {
-
+  it("allows a NURSE to create a medication order when providing cover", async () => {
+    const medicine = await Medicine.create({
+      name: `TEST Nurse Cover ${Date.now()}`,
+      category: "Test",
+      quantity: 10,
+      unit: "tablet",
+      lowStockThreshold: 2,
+      isActive: true,
+    });
+    createdMedicineIds.push(String(medicine._id));
     const res = await request(app)
       .post("/api/medical-history")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
         patientId: testPatientId,
-        diagnosis: "Should not be allowed"
+        prescription: "Covering nurse medication order",
+        prescribedItems: [{
+          medicineId: String(medicine._id),
+          quantity: 1,
+          instructions: "Give once",
+          route: "oral",
+          scheduledTime: "Give now",
+        }],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data.medicationStatus).toBe("pending");
+    expect(res.body.data.recordedBy).toBe(nurseId);
+    await MedicalHistory.findByIdAndDelete(res.body.data._id);
+  });
+
+  it("keeps nurse creation limited to medication orders", async () => {
+    const res = await request(app)
+      .post("/api/medical-history")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: testPatientId,
+        diagnosis: "Nurses must not create physician diagnoses",
       });
 
-    expect(res.status).toBe(403);
-
+    expect(res.status).toBe(400);
   });
 
 });

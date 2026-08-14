@@ -325,6 +325,9 @@ describe("Admin dashboard privacy", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.todayVisits).toBeGreaterThanOrEqual(1);
-    expect(res.body.data.recentCases).toEqual([]);
+    expect(res.body.data.recentCases).toBeUndefined();
+    expect(res.body.data.commonComplaints).toBeUndefined();
+    expect(res.body.data.monthlyVisits).toBeUndefined();
+    expect(res.body.data.analyticsVisitBreakdown).toBeUndefined();
   });
 });

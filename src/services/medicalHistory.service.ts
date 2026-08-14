@@ -1,29 +1,22 @@
 import MedicalHistory, { IMedicalHistory, IPrescribedItem } from "../models/medicalHistory.model";
-import Medicine, { IMedicine } from "../models/medicine.model";
+import Medicine from "../models/medicine.model";
 import ClinicVisit from "../models/clinicVisit.model";
-import MedicineDispense from "../models/medicineDispense.model";
 import Appointment from "../models/appointment.model";
 import InventoryBatch from "../models/inventoryBatch.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
 import { withMongoTransaction } from "../utils/transaction";
-import StockMovement from "../models/stockMovement.model";
-import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
 import Patient from "../models/patient.model";
-
-export interface StockChange {
-  medicine: IMedicine;
-  previousQuantity: number;
-}
 
 export class MedicalHistoryService {
   async createMedicalHistory(
-    data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string }[] }
-  ): Promise<{ entry: IMedicalHistory; stockChanges: StockChange[] }> {
+    data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string; route?: string; scheduledTime?: string }[] },
+    context: {
+      providerRole?: "doctor" | "nurse";
+      closureOutcome?: "returned_to_class" | "sent_home" | "guardian_pickup";
+    } = {},
+  ): Promise<{ entry: IMedicalHistory }> {
     try {
-      if ((data.prescribedItems?.length ?? 0) > 0) {
-        await assertInventoryPeriodOpen(new Date());
-      }
       return await withMongoTransaction(async (session) => {
         const patientQuery = Patient.findById(data.patientId);
         if (session) patientQuery.session(session);
@@ -42,13 +35,14 @@ export class MedicalHistoryService {
           if (!sourceVisit) {
             throw new AppError("Clinic visit not found for this consultation", 404);
           }
-          if (!sourceVisit.readyForDoctor && !sourceVisit.isEmergency) {
+          if (context.providerRole !== "nurse" && !sourceVisit.readyForDoctor && !sourceVisit.isEmergency) {
             throw new AppError(
               "A nurse must complete triage before a physician consultation can be saved",
               409,
             );
           }
           if (
+            context.providerRole !== "nurse" &&
             sourceVisit.assignedDoctorId &&
             String(sourceVisit.assignedDoctorId) !== String(data.recordedBy)
           ) {
@@ -57,13 +51,12 @@ export class MedicalHistoryService {
         }
 
         const requestedItems = data.prescribedItems ?? [];
-        const stockChanges: StockChange[] = [];
         const snapshotItems: IPrescribedItem[] = [];
-        const batchAllocationsByMedicine = new Map<string, {
-          batchId: InstanceType<typeof InventoryBatch>["_id"];
-          batchNumber: string;
-          quantity: number;
-        }[]>();
+        const requestedQuantityByMedicine = requestedItems.reduce((totals, item) => {
+          const medicineId = String(item.medicineId);
+          totals.set(medicineId, (totals.get(medicineId) ?? 0) + item.quantity);
+          return totals;
+        }, new Map<string, number>());
 
         const medicinePairs = await Promise.all(
           requestedItems.map(async (item) => {
@@ -83,67 +76,44 @@ export class MedicalHistoryService {
           const batchQuery = InventoryBatch.find({
             medicineId: pair.medicine._id,
             quantityRemaining: { $gt: 0 },
-          }).sort({ expiryDate: 1, receivedAt: 1 });
+          });
           if (session) batchQuery.session(session);
           const batches = await batchQuery;
-          const totalBatchQuantity = batches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
           const now = new Date();
+          const totalBatchQuantity = batches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
           const legacyQuantity = pair.medicine.expiryDate && pair.medicine.expiryDate < now
             ? 0
             : Math.max(0, pair.medicine.quantity - totalBatchQuantity);
-          const eligibleBatches = batches.filter(
-            (batch) => !batch.expiryDate || batch.expiryDate >= now,
+          const dispensableQuantity = legacyQuantity + batches
+            .filter((batch) => !batch.expiryDate || batch.expiryDate >= now)
+            .reduce((sum, batch) => sum + batch.quantityRemaining, 0);
+          const reservationQuery = MedicalHistory.find({
+            medicationStatus: { $in: ["pending", "accepted", "dispensing"] },
+            "prescribedItems.medicineId": pair.medicine._id,
+          }).select("prescribedItems");
+          if (session) reservationQuery.session(session);
+          const reservedQuantity = (await reservationQuery).reduce(
+            (sum, history) => sum + (history.prescribedItems ?? [])
+              .filter((item) => String(item.medicineId) === String(pair.medicine!._id))
+              .reduce((itemSum, item) => itemSum + item.quantity, 0),
+            0,
           );
-          const dispensableQuantity =
-            legacyQuantity + eligibleBatches.reduce((sum, batch) => sum + batch.quantityRemaining, 0);
-          if (dispensableQuantity < pair.requested.quantity) {
+          const availableAfterReservations = Math.max(0, dispensableQuantity - reservedQuantity);
+          const totalRequested = requestedQuantityByMedicine.get(String(pair.requested.medicineId)) ?? pair.requested.quantity;
+          if (availableAfterReservations < totalRequested) {
             throw new AppError(
-              `Insufficient unexpired stock for "${pair.medicine.name}": ${pair.requested.quantity} requested, only ${dispensableQuantity} ${pair.medicine.unit} available`,
+              `Insufficient unreserved stock for "${pair.medicine.name}": ${totalRequested} requested, only ${availableAfterReservations} ${pair.medicine.unit} available`,
               400,
             );
           }
-
-          let remaining = pair.requested.quantity;
-          const allocations: { batchId: InstanceType<typeof InventoryBatch>["_id"]; batchNumber: string; quantity: number }[] = [];
-          for (const batch of eligibleBatches) {
-            if (remaining <= 0) break;
-            const quantity = Math.min(batch.quantityRemaining, remaining);
-            if (quantity <= 0) continue;
-            const updatedBatch = await InventoryBatch.updateOne(
-              { _id: batch._id, quantityRemaining: { $gte: quantity } },
-              { $inc: { quantityRemaining: -quantity } },
-              session ? { session } : {},
-            );
-            if (updatedBatch.modifiedCount !== 1) {
-              throw new AppError(`Stock batch "${batch.batchNumber}" changed. Please try again.`, 409);
-            }
-            allocations.push({ batchId: batch._id, batchNumber: batch.batchNumber, quantity });
-            remaining -= quantity;
-          }
-          batchAllocationsByMedicine.set(String(pair.medicine._id), allocations);
-        }
-
-        for (const pair of medicinePairs) {
-          const medicineBefore = pair.medicine as IMedicine;
-          const updated = await Medicine.findOneAndUpdate(
-            { _id: pair.requested.medicineId, quantity: { $gte: pair.requested.quantity } },
-            { $inc: { quantity: -pair.requested.quantity } },
-            { returnDocument: "after", ...(session ? { session } : {}) },
-          );
-          if (!updated) {
-            throw new AppError(
-              `Stock for "${medicineBefore.name}" changed before this prescription could be completed. Please try again.`,
-              409,
-            );
-          }
-
-          stockChanges.push({ medicine: updated, previousQuantity: medicineBefore.quantity });
           snapshotItems.push({
-            medicineId: updated._id,
-            medicineName: medicineBefore.name,
+            medicineId: pair.medicine._id,
+            medicineName: pair.medicine.name,
             quantity: pair.requested.quantity,
-            unit: medicineBefore.unit,
+            unit: pair.medicine.unit,
             ...(pair.requested.instructions ? { instructions: pair.requested.instructions } : {}),
+            ...(pair.requested.route ? { route: pair.requested.route } : {}),
+            ...(pair.requested.scheduledTime ? { scheduledTime: pair.requested.scheduledTime } : {}),
           });
         }
 
@@ -151,43 +121,23 @@ export class MedicalHistoryService {
           [{
             ...data,
             ...(snapshotItems.length > 0 ? { prescribedItems: snapshotItems } : {}),
+            ...(snapshotItems.length > 0 ? { medicationStatus: "pending" } : {}),
           }],
           session ? { session } : {},
         );
         if (!entry) throw new Error("Medical history entry was not created");
 
         if (data.visitId) {
-          if (snapshotItems.length > 0) {
-            await MedicineDispense.insertMany(
-              snapshotItems.map((item) => ({
-                visitId: data.visitId,
-                medicineId: item.medicineId,
-                quantity: item.quantity,
-                unit: item.unit,
-                ...(item.instructions ? { instructions: item.instructions } : {}),
-                batchAllocations: batchAllocationsByMedicine.get(String(item.medicineId)) ?? [],
-                dispensedBy: data.recordedBy,
-              })),
-              session ? { session } : {},
-            );
-            await StockMovement.insertMany(
-              stockChanges.map((change) => ({
-                medicineId: change.medicine._id,
-                visitId: data.visitId,
-                type: "dispensed",
-                quantityChange: change.medicine.quantity - change.previousQuantity,
-                balanceAfter: change.medicine.quantity,
-                occurredAt: new Date(),
-                performedBy: data.recordedBy,
-                notes: "Dispensed during physician consultation",
-              })),
-              session ? { session } : {},
-            );
-          }
-
           const completedVisit = await ClinicVisit.findOneAndUpdate(
             { _id: data.visitId, patientId: data.patientId! },
-            { status: "completed", closureOutcome: "physician_consultation", closedAt: new Date(), updatedBy: data.recordedBy },
+            {
+              status: "completed",
+              closureOutcome: context.providerRole === "nurse"
+                ? context.closureOutcome ?? "returned_to_class"
+                : "physician_consultation",
+              closedAt: new Date(),
+              updatedBy: data.recordedBy,
+            },
             { returnDocument: "after", ...(session ? { session } : {}) },
           );
           if (!completedVisit) throw new AppError("Clinic visit not found for this student", 409);
@@ -201,7 +151,7 @@ export class MedicalHistoryService {
           }
         }
 
-        return { entry, stockChanges };
+        return { entry };
       });
     } catch (error: unknown) {
       if (
@@ -248,6 +198,9 @@ export class MedicalHistoryService {
         .populate("patientId")
         .populate("recordedBy", "name role")
         .populate("updatedBy", "name role")
+        .populate("medicationDispensedBy", "name role")
+        .populate("medicationClaimedBy", "name role")
+        .populate("medicationAdverseReactionReportedBy", "name role")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
@@ -262,7 +215,10 @@ export class MedicalHistoryService {
       .populate("patientId")
       .populate("visitId", "visitDate complaint")
       .populate("recordedBy", "name role")
-      .populate("updatedBy", "name role");
+      .populate("updatedBy", "name role")
+      .populate("medicationDispensedBy", "name role")
+      .populate("medicationClaimedBy", "name role")
+      .populate("medicationAdverseReactionReportedBy", "name role");
 
     if (!entry) {
       throw new AppError("Medical history entry not found", 404);

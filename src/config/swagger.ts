@@ -160,7 +160,8 @@ const paths: ZodOpenApiPathsObject = {
         query: z.object({
           page: z.coerce.number().optional(),
           limit: z.coerce.number().optional(),
-          search: z.string().optional().meta({ description: "Matches firstName, lastName, or studentId" }),
+          search: z.string().optional().meta({ description: "Matches name, student/employee ID, department, or position" }),
+          patientType: z.enum(["student", "teacher", "staff"]).optional(),
           includeInactive: z.enum(["true", "false"]).optional(),
         }),
       },
@@ -170,6 +171,7 @@ const paths: ZodOpenApiPathsObject = {
   "/patients/basic": {
     get: {
       tags: ["Patients"], summary: "Get a lightweight name/ID-only patient list (staff only, not paginated)", security: bearerAuth,
+      requestParams: { query: z.object({ search: z.string().optional(), patientType: z.enum(["student", "teacher", "staff"]).optional() }) },
       responses: standardResponses(successResponse()),
     },
   },
@@ -360,11 +362,26 @@ const paths: ZodOpenApiPathsObject = {
     },
   },
 
+  // Clinical analytics
+  "/dashboard/analytics": {
+    get: {
+      tags: ["Analytics"],
+      summary: "Get clinic analytics filtered by patient type (doctor/nurse only)",
+      security: bearerAuth,
+      requestParams: {
+        query: z.object({
+          patientType: z.enum(["all", "student", "teacher", "staff"]).optional(),
+        }),
+      },
+      responses: standardResponses(successResponse()),
+    },
+  },
+
   // Reports
   "/reports/clinic-summary": {
     get: {
       tags: ["Reports"],
-      summary: "Generate and download a Word document summarizing clinic activity for a date range (admin only)",
+      summary: "Generate and download a Word document summarizing clinic activity for a date range (doctor/nurse only)",
       description:
         "Defaults to the current calendar month if no dates are given. " +
         "Generated entirely from this system's own data - no external AI " +
@@ -374,6 +391,7 @@ const paths: ZodOpenApiPathsObject = {
         query: z.object({
           startDate: z.iso.date().optional().meta({ description: "ISO date, e.g. 2026-06-01. Required if endDate is given." }),
           endDate: z.iso.date().optional().meta({ description: "ISO date, e.g. 2026-06-30. Required if startDate is given." }),
+          patientType: z.enum(["all", "student", "employees", "teacher", "staff"]).optional(),
         }),
       },
       responses: {

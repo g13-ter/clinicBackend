@@ -1,25 +1,36 @@
 import { Request, Response, NextFunction } from "express";
 import { MedicalHistoryService } from "../services/medicalHistory.service";
-import { computeStatus } from "../services/medicine.service";
-import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUser";
-import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger, { errorMetadata } from "../utils/logger";
 import { AppError } from "../middleware/error.middleware";
 import { buildMedicalCertificateDocx } from "../utils/medicalCertificateDocx";
+import Patient from "../models/patient.model";
+import { notifyActiveNurses } from "../services/inAppNotification.service";
 
 const medicalHistoryService = new MedicalHistoryService();
-const userService = new UserService();
 
 // CREATE
 export const createMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = getAuthenticatedUser(req).id;
-    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies } = req.body;
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
+    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
 
-    const { entry, stockChanges } = await medicalHistoryService.createMedicalHistory({
+    if (actor.role === "nurse") {
+      if (!Array.isArray(prescribedItems) || prescribedItems.length === 0) {
+        throw new AppError("A nurse-created medical history entry must include a medication order", 400);
+      }
+      if (diagnosis || labRequest || familyHistory || allergies) {
+        throw new AppError(
+          "Nurse medication orders cannot include physician diagnosis, laboratory, or medical-history fields",
+          403,
+        );
+      }
+    }
+
+    const { entry } = await medicalHistoryService.createMedicalHistory({
       patientId,
       visitId,
       diagnosis,
@@ -29,6 +40,9 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       familyHistory,
       allergies,
       recordedBy: getAuthenticatedObjectId(req),
+    }, {
+      providerRole: actor.role === "nurse" ? "nurse" : "doctor",
+      closureOutcome,
     });
 
     logAudit({
@@ -41,57 +55,43 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       path: req.originalUrl,
     });
 
-    // Audit prescription deductions as inventory updates.
-    for (const change of stockChanges) {
-      logAudit({
-        action: "update",
-        resource: "Medicine",
-        resourceId: String(change.medicine._id),
-        performedBy: userId,
-        before: { quantity: change.previousQuantity },
-        after: { quantity: change.medicine.quantity },
-        method: req.method,
-        path: req.originalUrl,
-      });
+    if ((entry.prescribedItems?.length ?? 0) > 0) {
+      try {
+        const patient = await Patient.findById(patientId).select("firstName lastName").lean();
+        const studentName = patient
+          ? `${patient.firstName} ${patient.lastName}`
+          : "Student";
+        const medicationSummary = entry.prescribedItems!
+          .map((item) => {
+            const instructions = item.instructions ? ` — ${item.instructions}` : "";
+            return `${item.medicineName} × ${item.quantity} ${item.unit}${instructions}`;
+          })
+          .join("; ");
+
+        await notifyActiveNurses({
+          kind: "medication_order",
+          title: `Medication requested by ${actor.role}`,
+          message: `${studentName}: ${medicationSummary}`,
+          link: `/patients/${patientId}`,
+          resourceType: "MedicalHistory",
+          resourceId: String(entry._id),
+          dedupeKey: `nurse:medication-order:${entry._id}`,
+        });
+      } catch (notificationError) {
+        logger.error("nurse_medication_notification_failed", {
+          medicalHistoryId: String(entry._id),
+          ...errorMetadata(notificationError),
+        });
+      }
     }
 
-    res.status(201).json({ success: true, message: "Medical history entry created successfully", data: entry });
-
-    // Alert only for items that entered a concerning status.
-    const concerningStatuses = ["Low Stock", "Out of Stock", "Expired"];
-    const newlyConcerning = stockChanges.filter((change) => {
-      const before = { ...change.medicine.toObject(), quantity: change.previousQuantity };
-      const beforeStatus = computeStatus(before);
-      const afterStatus = computeStatus(change.medicine);
-      return concerningStatuses.includes(afterStatus) && beforeStatus !== afterStatus;
+    res.status(201).json({
+      success: true,
+      message: entry.prescribedItems?.length
+        ? "Medication order saved and the nurse was notified"
+        : "Medical history entry created successfully",
+      data: entry,
     });
-
-    if (newlyConcerning.length > 0) {
-      (async () => {
-        try {
-          const adminEmails = await userService.getAdminEmails();
-          await Promise.all(
-            newlyConcerning.flatMap((change) =>
-              adminEmails.map((to) =>
-                enqueueNotification({
-                  kind: "low_stock",
-                  recipient: to,
-                  dedupeKey: `low-stock:${change.medicine._id}:${computeStatus(change.medicine)}:${change.medicine.quantity}:${to}`,
-                  payload: {
-                    itemName: change.medicine.name,
-                    quantity: change.medicine.quantity,
-                    unit: change.medicine.unit,
-                    status: computeStatus(change.medicine),
-                  },
-                })
-              )
-            )
-          );
-        } catch (emailError) {
-          logger.error("prescription_low_stock_alert_enqueue_failed", errorMetadata(emailError));
-        }
-      })();
-    }
   } catch (error) {
     next(error);
   }

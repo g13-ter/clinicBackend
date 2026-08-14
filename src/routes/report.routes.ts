@@ -3,6 +3,8 @@ import {
   exportReportCsv,
   getAnnualMedicationReport,
   getClinicSummaryReport,
+  getMonthlyMedicationInventoryForm,
+  previewMonthlyMedicationInventory,
 } from "../controllers/report.controller";
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
@@ -15,6 +17,20 @@ router.get(
   protect,
   allowRoles("doctor", "nurse"),
   getAnnualMedicationReport,
+);
+
+router.get(
+  "/monthly-medication-inventory/preview",
+  protect,
+  allowRoles("doctor", "nurse"),
+  previewMonthlyMedicationInventory,
+);
+
+router.get(
+  "/monthly-medication-inventory",
+  protect,
+  allowRoles("doctor", "nurse"),
+  getMonthlyMedicationInventoryForm,
 );
 
 router.get(

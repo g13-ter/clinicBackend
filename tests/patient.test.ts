@@ -227,6 +227,40 @@ describe("Patients - View permissions differ by role", () => {
 
   });
 
+  it("registers a teacher with employee fields and returns it through the teacher filter", async () => {
+    const employeeId = `TEST-EMP-${Date.now()}`;
+    const created = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientType: "teacher",
+        employeeId,
+        firstName: "TEST",
+        lastName: "Teacher",
+        age: 35,
+        gender: "Female",
+        department: "Science",
+        position: "Teacher II",
+        contactNumber: "09171234567",
+        address: "Test Address",
+        emergencyContactName: "TEST Contact",
+        emergencyContactNumber: "09179999999",
+      });
+
+    expect(created.status).toBe(201);
+    expect(created.body.data.patientType).toBe("teacher");
+    expect(created.body.data.employeeId).toBe(employeeId);
+    staffCreatedPatientIds.push(created.body.data._id);
+
+    const filtered = await request(app)
+      .get(`/api/patients?patientType=teacher&search=${employeeId}`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(filtered.status).toBe(200);
+    expect(filtered.body.data).toHaveLength(1);
+    expect(filtered.body.data[0]._id).toBe(created.body.data._id);
+  });
+
   it("calculates age from date of birth instead of trusting submitted age", async () => {
     const today = new Date();
     const birthDate = new Date(Date.UTC(
