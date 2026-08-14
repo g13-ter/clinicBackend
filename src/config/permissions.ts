@@ -48,7 +48,7 @@ export const PERMISSIONS = {
     archive: ["admin"] as const satisfies readonly UserRole[],
   },
   medicalHistory: {
-    create: ["doctor"] as const satisfies readonly UserRole[],
+    create: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     list: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     viewById: ["doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["doctor"] as const satisfies readonly UserRole[],

@@ -30,11 +30,11 @@ import {
 const router = express.Router();
 
 
-// Doctor only - create new entry
+// Doctors create consultation records; nurses may create medication orders when providing cover.
 router.post(
   "/",
   protect,
-  allowRoles("doctor"),
+  allowRoles("doctor", "nurse"),
   validateBody(createMedicalHistorySchema),
   createMedicalHistory
 );

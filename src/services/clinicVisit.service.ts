@@ -4,6 +4,7 @@ import { PaginationParams } from "../utils/pagination";
 import { escapeRegex } from "../utils/regex";
 import Appointment from "../models/appointment.model";
 import { Types } from "mongoose";
+import Patient from "../models/patient.model";
 
 type VisitStatus = IClinicVisit["status"];
 
@@ -136,9 +137,17 @@ export class ClinicVisitService {
   }
 
   // Return all open visits in FIFO order.
-  async getQueue(): Promise<IClinicVisit[]> {
-    return await ClinicVisit.find({ isActive: true, status: { $in: ["triage", "ready_for_doctor", "in_consultation", "paused"] } })
-      .populate("patientId", "studentId firstName lastName")
+  async getQueue(patientType?: "student" | "teacher" | "staff"): Promise<IClinicVisit[]> {
+    const patientQuery: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType ? { patientType } : {};
+    const patientIds = patientType ? await Patient.find(patientQuery).distinct("_id") : undefined;
+    return await ClinicVisit.find({
+      isActive: true,
+      status: { $in: ["triage", "ready_for_doctor", "in_consultation", "paused"] },
+      ...(patientIds ? { patientId: { $in: patientIds } } : {}),
+    })
+      .populate("patientId", "patientType studentId employeeId firstName lastName department position course yearLevel")
       .populate("appointmentId", "appointmentDate reason status")
       .populate("assignedDoctorId", "name role")
       .populate("recordedBy", "name role")
@@ -159,7 +168,7 @@ export class ClinicVisitService {
     ].filter(Boolean);
     if (missingVitals.length > 0) {
       throw new AppError(
-        `Record ${missingVitals.join(", ")} before marking the student ready for doctor`,
+        `Record ${missingVitals.join(", ")} before marking the patient ready for doctor`,
         409,
       );
     }

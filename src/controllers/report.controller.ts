@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { ReportService } from "../services/report.service";
+import { ReportService, type PatientType, type ReportPatientType } from "../services/report.service";
 import { buildReportDocx } from "../utils/reportDocx";
 import { buildAnnualMedicationXls } from "../utils/annualMedicationXls";
 import { buildMonthlyMedicationInventoryXls } from "../utils/monthlyMedicationInventoryXls";
@@ -8,6 +8,11 @@ import InventoryLabel from "../models/inventoryLabel.model";
 import { STANDARD_INVENTORY_LABELS } from "../services/inventoryLabel.service";
 
 const reportService = new ReportService();
+const getPatientType = (value: unknown): ReportPatientType | undefined => {
+  if (value === undefined || value === "all" || value === "") return undefined;
+  if (value === "student" || value === "teacher" || value === "staff" || value === "employees") return value;
+  throw new AppError("patientType must be all, student, teacher, staff, or employees", 400);
+};
 
 type VisitReportPeriod = "daily" | "weekly" | "monthly" | "yearly" | "custom";
 const visitReportPeriods: readonly VisitReportPeriod[] = ["daily", "weekly", "monthly", "yearly", "custom"];
@@ -108,13 +113,14 @@ export const getClinicSummaryReport = async (
       req.query.startDate as string | undefined,
       req.query.endDate as string | undefined,
     );
-    const stats = await reportService.getClinicSummary(startDate, endDate);
+    const patientType = getPatientType(req.query.patientType);
+    const stats = await reportService.getClinicSummary(startDate, endDate, patientType);
     const requestedPeriod = req.query.period as VisitReportPeriod | undefined;
     const period = requestedPeriod && visitReportPeriods.includes(requestedPeriod)
       ? requestedPeriod
       : "custom";
     const buffer = await buildReportDocx(stats, period);
-    const filename = `${period === "custom" ? "Clinic" : period[0]!.toUpperCase() + period.slice(1)}_Medical_Case_Report_${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}.docx`;
+    const filename = `${period === "custom" ? "Clinic" : period[0]!.toUpperCase() + period.slice(1)}_${patientType ?? "All_Patients"}_Medical_Case_Report_${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}.docx`;
 
     res.setHeader(
       "Content-Type",
@@ -217,6 +223,7 @@ export const exportReportCsv = async (
       req.query.endDate as string | undefined,
     );
     const dateSuffix = `${startDate.toISOString().slice(0, 10)}_to_${endDate.toISOString().slice(0, 10)}`;
+    const patientType = getPatientType(req.query.patientType);
 
     if (type === "inventory-current" || type === "inventory-batches") {
       const stock = await reportService.getCurrentStockByBatch();
@@ -323,7 +330,7 @@ export const exportReportCsv = async (
     }
 
     if (type === "medication-consumption") {
-      const usage = await reportService.getMedicineUsageExport(startDate, endDate);
+      const usage = await reportService.getMedicineUsageExport(startDate, endDate, patientType);
       sendCsv(
         res,
         `Medication_Consumption_${dateSuffix}.csv`,
@@ -340,14 +347,15 @@ export const exportReportCsv = async (
     }
 
     if (type === "medication-usage-details") {
-      const details = await reportService.getMedicationUsageDetails(startDate, endDate);
+      const details = await reportService.getMedicationUsageDetails(startDate, endDate, patientType);
       sendCsv(
         res,
         `Medication_Usage_Details_${dateSuffix}.csv`,
         [
           "Date",
-          "Student ID",
-          "Student",
+          "Patient Type",
+          "Patient ID",
+          "Patient",
           "Reason for Visit",
           "Medication",
           "Quantity",
@@ -357,6 +365,7 @@ export const exportReportCsv = async (
         ],
         details.map((item) => [
           item.dispensedAt,
+          item.patientType,
           item.studentId,
           item.studentName,
           item.complaint,
@@ -423,7 +432,7 @@ export const exportReportCsv = async (
     }
 
     if (type === "inventory-usage") {
-      const usage = await reportService.getMedicineUsageExport(startDate, endDate);
+      const usage = await reportService.getMedicineUsageExport(startDate, endDate, patientType);
       sendCsv(
         res,
         `Medicine_Usage_${dateSuffix}.csv`,
@@ -440,22 +449,26 @@ export const exportReportCsv = async (
     }
 
     if (type === "disease-trends") {
-      const summary = await reportService.getClinicSummary(startDate, endDate);
+      const summary = await reportService.getClinicSummary(startDate, endDate, patientType);
+      const types: PatientType[] = patientType === "employees"
+        ? ["teacher", "staff"]
+        : patientType ? [patientType] : ["student", "teacher", "staff"];
       sendCsv(
         res,
         `Disease_Trends_${dateSuffix}.csv`,
-        ["Complaint / Condition", "Recorded Visits"],
-        summary.complaintCounts.map((item) => [item.complaint, item.count]),
+        ["Patient Type", "Complaint / Condition", "Recorded Visits"],
+        types.flatMap((typeName) => summary.complaintCountsByPatientType[typeName].map((item) => [typeName, item.complaint, item.count])),
       );
       return;
     }
 
-    const vaccinations = await reportService.getVaccinationExport();
+    const vaccinations = await reportService.getVaccinationExport(patientType);
     sendCsv(
       res,
       `Vaccination_Status_${dateSuffix}.csv`,
-      ["Student ID", "Student", "Vaccine", "Date Administered", "Notes"],
+      ["Patient Type", "Patient ID", "Patient", "Vaccine", "Date Administered", "Notes"],
       vaccinations.map((item) => [
+        item.patientType,
         item.studentId,
         item.studentName,
         item.vaccine,

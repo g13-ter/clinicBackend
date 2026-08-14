@@ -77,7 +77,7 @@ afterAll(async () => {
 });
 
 
-describe("Medical History - Create (doctor only)", () => {
+describe("Medical History - Create", () => {
 
   it("allows a DOCTOR to add a diagnosis entry", async () => {
 
@@ -322,18 +322,46 @@ describe("Medical History - Create (doctor only)", () => {
   });
 
 
-  it("blocks a NURSE from creating a medical history entry (read-only role)", async () => {
-
+  it("allows a NURSE to create a medication order when providing cover", async () => {
+    const medicine = await Medicine.create({
+      name: `TEST Nurse Cover ${Date.now()}`,
+      category: "Test",
+      quantity: 10,
+      unit: "tablet",
+      lowStockThreshold: 2,
+      isActive: true,
+    });
+    createdMedicineIds.push(String(medicine._id));
     const res = await request(app)
       .post("/api/medical-history")
       .set("Authorization", `Bearer ${nurseToken}`)
       .send({
         patientId: testPatientId,
-        diagnosis: "Should not be allowed"
+        prescription: "Covering nurse medication order",
+        prescribedItems: [{
+          medicineId: String(medicine._id),
+          quantity: 1,
+          instructions: "Give once",
+          route: "oral",
+          scheduledTime: "Give now",
+        }],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data.medicationStatus).toBe("pending");
+    expect(res.body.data.recordedBy).toBe(nurseId);
+    await MedicalHistory.findByIdAndDelete(res.body.data._id);
+  });
+
+  it("keeps nurse creation limited to medication orders", async () => {
+    const res = await request(app)
+      .post("/api/medical-history")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId: testPatientId,
+        diagnosis: "Nurses must not create physician diagnoses",
       });
 
-    expect(res.status).toBe(403);
-
+    expect(res.status).toBe(400);
   });
 
 });

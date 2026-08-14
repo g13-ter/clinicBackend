@@ -9,6 +9,8 @@ import AuditLog from "../models/auditLog.model";
 import { computeStatus } from "./medicine.service";
 import { clinicDateKey, clinicDayRange } from "../utils/clinicTime";
 
+export type AnalyticsPatientType = "all" | "student" | "teacher" | "staff";
+
 const todayRange = () => clinicDayRange(clinicDateKey());
 
 const startOfMonth = (): Date => {
@@ -20,6 +22,8 @@ const startOfMonth = (): Date => {
 
 export interface DashboardStats {
   totalStudents: number;
+  totalPatients: number;
+  patientsByType: { student: number; teacher: number; staff: number };
   usersByRole: { doctor: number; nurse: number; staff: number; admin: number };
   todaysAppointments: number;
   todayVisits: number;
@@ -41,10 +45,13 @@ export interface DashboardStats {
   }[];
   commonComplaints: { label: string; count: number }[];
   monthlyVisits: { key: string; month: string; visits: number }[];
+  analyticsPatientType: AnalyticsPatientType;
+  analyticsTotalVisits: number;
+  analyticsVisitBreakdown: { student: number; teacher: number; staff: number };
   recentCases: {
     id: string;
     date: Date;
-    student: { id: string; name: string; studentId: string } | null;
+    student: { id: string; name: string; studentId: string; patientType: "student" | "teacher" | "staff" } | null;
     complaint: string;
     assessment: string;
     treatment: string;
@@ -84,11 +91,22 @@ const titleCase = (value: string): string =>
   value.replace(/\b\w/g, (character) => character.toUpperCase());
 
 export class DashboardService {
-  async getStats(doctorId?: string): Promise<DashboardStats> {
+  async getStats(doctorId?: string, analyticsPatientType: AnalyticsPatientType = "all"): Promise<DashboardStats> {
     const { start: todayStart, endExclusive: todayEnd } = todayRange();
     const doctorScope = doctorId ? { doctorId } : {};
+    const patientType = analyticsPatientType === "all" ? undefined : analyticsPatientType;
+    const patientTypeQuery: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType ? { patientType } : {};
+    const analyticsPatientIds = patientType
+      ? await Patient.find(patientTypeQuery).distinct("_id")
+      : undefined;
+    const analyticsPatientFilter = analyticsPatientIds
+      ? { patientId: { $in: analyticsPatientIds } }
+      : {};
+    const analyticsRange = { visitDate: { $gte: startOfDashboardRange() }, isActive: true };
     const [
-      totalStudents,
+      patientCountDocs,
       doctorCount,
       nurseCount,
       staffCount,
@@ -105,10 +123,14 @@ export class DashboardService {
       activeUserDocs,
       commonComplaintDocs,
       monthlyVisitDocs,
+      analyticsBreakdownDocs,
       recentCaseDocs,
       recentActivityDocs,
     ] = await Promise.all([
-      Patient.countDocuments({ isActive: true }),
+      Patient.aggregate<{ _id: "student" | "teacher" | "staff"; count: number }>([
+        { $match: { isActive: true } },
+        { $group: { _id: { $ifNull: ["$patientType", "student"] }, count: { $sum: 1 } } },
+      ]),
       User.countDocuments({ role: "doctor", isAvailable: { $ne: false } }),
       User.countDocuments({ role: "nurse", isAvailable: { $ne: false } }),
       User.countDocuments({ role: "staff", isAvailable: { $ne: false } }),
@@ -146,7 +168,7 @@ export class DashboardService {
         .sort({ role: 1, name: 1 })
         .lean(),
       ClinicVisit.aggregate<{ _id: string; count: number }>([
-        { $match: { complaint: { $type: "string", $ne: "" } } },
+        { $match: { ...analyticsRange, ...analyticsPatientFilter, complaint: { $type: "string", $ne: "" } } },
         {
           $group: {
             _id: { $toLower: { $trim: { input: "$complaint" } } },
@@ -157,7 +179,7 @@ export class DashboardService {
         { $limit: 5 },
       ]),
       ClinicVisit.aggregate<{ _id: string; visits: number }>([
-        { $match: { visitDate: { $gte: startOfDashboardRange() } } },
+        { $match: { ...analyticsRange, ...analyticsPatientFilter } },
         {
           $group: {
             _id: {
@@ -172,8 +194,15 @@ export class DashboardService {
         },
         { $sort: { _id: 1 } },
       ]),
-      ClinicVisit.find()
-        .populate("patientId", "studentId firstName lastName")
+      ClinicVisit.aggregate<{ _id: "student" | "teacher" | "staff"; visits: number }>([
+        { $match: { ...analyticsRange, ...analyticsPatientFilter } },
+        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
+        { $unwind: { path: "$patient", preserveNullAndEmptyArrays: true } },
+        { $group: { _id: { $ifNull: ["$patient.patientType", "student"] }, visits: { $sum: 1 } } },
+      ]),
+      ClinicVisit.find({ ...analyticsRange, ...analyticsPatientFilter })
+        .populate("patientId", "patientType studentId firstName lastName")
+        .populate("assignedDoctorId", "name role")
         .populate("recordedBy", "name role")
         .populate("updatedBy", "name role")
         .sort({ visitDate: -1 })
@@ -201,9 +230,14 @@ export class DashboardService {
       ...entry,
       visits: visitCounts.get(entry.key) ?? 0,
     }));
+    const analyticsVisitBreakdown = { student: 0, teacher: 0, staff: 0 };
+    for (const entry of analyticsBreakdownDocs) analyticsVisitBreakdown[entry._id] = entry.visits;
+    const analyticsTotalVisits = patientType
+      ? analyticsVisitBreakdown[patientType]
+      : analyticsVisitBreakdown.student + analyticsVisitBreakdown.teacher + analyticsVisitBreakdown.staff;
 
     type PopulatedUser = { _id: unknown; name: string; role: string };
-    type PopulatedPatient = { _id: unknown; studentId: string; firstName: string; lastName: string };
+    type PopulatedPatient = { _id: unknown; patientType?: "student" | "teacher" | "staff"; studentId: string; firstName: string; lastName: string };
     const recentCases = (recentCaseDocs as unknown as Array<{
       _id: unknown;
       visitDate: Date;
@@ -212,17 +246,30 @@ export class DashboardService {
       treatment?: string;
       consultationFindings?: string;
       nursingAssessment?: string;
+      assignedDoctorId?: PopulatedUser;
       updatedBy?: PopulatedUser;
       recordedBy?: PopulatedUser;
     }>).map((visit) => {
+      const assignedDoctor = visit.assignedDoctorId;
       const updatedBy = visit.updatedBy;
       const recordedBy = visit.recordedBy;
-      const providerCandidate =
-        updatedBy && ["doctor", "nurse"].includes(updatedBy.role)
+      const doctorCandidate =
+        assignedDoctor?.role === "doctor"
+          ? assignedDoctor
+          : updatedBy?.role === "doctor"
+            ? updatedBy
+            : recordedBy?.role === "doctor"
+              ? recordedBy
+              : null;
+      const nurseCandidate =
+        updatedBy?.role === "nurse"
           ? updatedBy
-          : recordedBy && ["doctor", "nurse"].includes(recordedBy.role)
+          : recordedBy?.role === "nurse"
             ? recordedBy
             : null;
+      const providerCandidate = visit.consultationFindings
+        ? doctorCandidate ?? nurseCandidate
+        : nurseCandidate ?? doctorCandidate;
 
       return {
         id: String(visit._id),
@@ -232,6 +279,7 @@ export class DashboardService {
               id: String(visit.patientId._id),
               name: `${visit.patientId.firstName} ${visit.patientId.lastName}`,
               studentId: visit.patientId.studentId,
+              patientType: visit.patientId.patientType ?? "student",
             }
           : null,
         complaint: visit.complaint,
@@ -247,8 +295,14 @@ export class DashboardService {
       };
     });
 
+    const patientsByType = { student: 0, teacher: 0, staff: 0 };
+    for (const entry of patientCountDocs) patientsByType[entry._id] = entry.count;
+    const totalPatients = patientsByType.student + patientsByType.teacher + patientsByType.staff;
+
     return {
-      totalStudents,
+      totalPatients,
+      patientsByType,
+      totalStudents: patientsByType.student,
       usersByRole: { doctor: doctorCount, nurse: nurseCount, staff: staffCount, admin: adminCount },
       todaysAppointments,
       todayVisits,
@@ -273,6 +327,9 @@ export class DashboardService {
         count: entry.count,
       })),
       monthlyVisits,
+      analyticsPatientType,
+      analyticsTotalVisits,
+      analyticsVisitBreakdown,
       recentCases,
       recentActivity: recentActivityDocs.map((log) => ({
         action: log.action,

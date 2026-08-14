@@ -10,7 +10,11 @@ import Patient from "../models/patient.model";
 
 export class MedicalHistoryService {
   async createMedicalHistory(
-    data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string; route?: string; scheduledTime?: string }[] }
+    data: Partial<IMedicalHistory> & { prescribedItems?: { medicineId: string; quantity: number; instructions?: string; route?: string; scheduledTime?: string }[] },
+    context: {
+      providerRole?: "doctor" | "nurse";
+      closureOutcome?: "returned_to_class" | "sent_home" | "guardian_pickup";
+    } = {},
   ): Promise<{ entry: IMedicalHistory }> {
     try {
       return await withMongoTransaction(async (session) => {
@@ -31,13 +35,14 @@ export class MedicalHistoryService {
           if (!sourceVisit) {
             throw new AppError("Clinic visit not found for this consultation", 404);
           }
-          if (!sourceVisit.readyForDoctor && !sourceVisit.isEmergency) {
+          if (context.providerRole !== "nurse" && !sourceVisit.readyForDoctor && !sourceVisit.isEmergency) {
             throw new AppError(
               "A nurse must complete triage before a physician consultation can be saved",
               409,
             );
           }
           if (
+            context.providerRole !== "nurse" &&
             sourceVisit.assignedDoctorId &&
             String(sourceVisit.assignedDoctorId) !== String(data.recordedBy)
           ) {
@@ -125,7 +130,14 @@ export class MedicalHistoryService {
         if (data.visitId) {
           const completedVisit = await ClinicVisit.findOneAndUpdate(
             { _id: data.visitId, patientId: data.patientId! },
-            { status: "completed", closureOutcome: "physician_consultation", closedAt: new Date(), updatedBy: data.recordedBy },
+            {
+              status: "completed",
+              closureOutcome: context.providerRole === "nurse"
+                ? context.closureOutcome ?? "returned_to_class"
+                : "physician_consultation",
+              closedAt: new Date(),
+              updatedBy: data.recordedBy,
+            },
             { returnDocument: "after", ...(session ? { session } : {}) },
           );
           if (!completedVisit) throw new AppError("Clinic visit not found for this student", 409);

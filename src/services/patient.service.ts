@@ -8,29 +8,43 @@ import type { UserRole } from "../types/roles";
 type PatientSearchClause =
   | { firstName: { $regex: string; $options: "i" } }
   | { lastName: { $regex: string; $options: "i" } }
-  | { studentId: { $regex: string; $options: "i" } };
+  | { studentId: { $regex: string; $options: "i" } }
+  | { employeeId: { $regex: string; $options: "i" } }
+  | { department: { $regex: string; $options: "i" } }
+  | { position: { $regex: string; $options: "i" } };
 
 interface PatientSearchFilter {
   isActive?: true;
+  patientType?: "student" | "teacher" | "staff";
+  $and?: Array<Record<string, unknown>>;
   $or?: PatientSearchClause[];
 }
 
 export class PatientService {
   async createPatient(data: Partial<IPatient>): Promise<IPatient> {
-    const studentId = data.studentId?.trim().toUpperCase();
-    if (!studentId) {
-      throw new AppError("Student ID is required", 400);
+    const patientType = data.patientType ?? "student";
+    const identifier = (patientType === "student" ? data.studentId : data.employeeId)?.trim().toUpperCase();
+    if (!identifier) {
+      throw new AppError(patientType === "student" ? "Student ID is required" : "Employee ID is required", 400);
     }
 
     const existing = await Patient.exists({
-      studentId: { $regex: `^${escapeRegex(studentId)}$`, $options: "i" },
+      $or: [
+        { studentId: { $regex: `^${escapeRegex(identifier)}$`, $options: "i" } },
+        { employeeId: { $regex: `^${escapeRegex(identifier)}$`, $options: "i" } },
+      ],
     });
     if (existing) {
-      throw new AppError(`Student ID ${studentId} is already registered`, 409);
+      throw new AppError(`ID ${identifier} is already registered`, 409);
     }
 
     try {
-      return await Patient.create({ ...data, studentId });
+      return await Patient.create({
+        ...data,
+        patientType,
+        studentId: identifier,
+        ...(patientType === "student" ? {} : { employeeId: identifier }),
+      });
     } catch (error: unknown) {
       if (
         typeof error === "object" &&
@@ -38,7 +52,7 @@ export class PatientService {
         "code" in error &&
         error.code === 11000
       ) {
-        throw new AppError(`Student ID ${studentId} is already registered`, 409);
+        throw new AppError(`ID ${identifier} is already registered`, 409);
       }
       throw error;
     }
@@ -47,10 +61,16 @@ export class PatientService {
   async getPatients(
     includeInactive: boolean,
     { limit, skip }: PaginationParams,
-    search?: string
+    search?: string,
+    patientType?: "student" | "teacher" | "staff",
   ): Promise<{ patients: IPatient[]; total: number }> {
     const filter: PatientSearchFilter =
       includeInactive ? {} : { isActive: true };
+    if (patientType === "student") {
+      filter.$and = [{ $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }];
+    } else if (patientType) {
+      filter.patientType = patientType;
+    }
 
     if (search) {
       const safeSearch = escapeRegex(search);
@@ -58,6 +78,9 @@ export class PatientService {
         { firstName: { $regex: safeSearch, $options: "i" } },
         { lastName: { $regex: safeSearch, $options: "i" } },
         { studentId: { $regex: safeSearch, $options: "i" } },
+        { employeeId: { $regex: safeSearch, $options: "i" } },
+        { department: { $regex: safeSearch, $options: "i" } },
+        { position: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
@@ -75,10 +98,15 @@ export class PatientService {
     return { patients, total };
   }
 
-  async getPatientsBasic(search?: string): Promise<IPatient[]> {
+  async getPatientsBasic(search?: string, patientType?: "student" | "teacher" | "staff"): Promise<IPatient[]> {
     const filter: PatientSearchFilter = {
       isActive: true,
     };
+    if (patientType === "student") {
+      filter.$and = [{ $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }];
+    } else if (patientType) {
+      filter.patientType = patientType;
+    }
 
     if (search) {
       const safeSearch = escapeRegex(search);
@@ -86,11 +114,14 @@ export class PatientService {
         { firstName: { $regex: safeSearch, $options: "i" } },
         { lastName: { $regex: safeSearch, $options: "i" } },
         { studentId: { $regex: safeSearch, $options: "i" } },
+        { employeeId: { $regex: safeSearch, $options: "i" } },
+        { department: { $regex: safeSearch, $options: "i" } },
+        { position: { $regex: safeSearch, $options: "i" } },
       ];
     }
 
     return await Patient.find(filter).select(
-      "studentId firstName lastName course yearLevel"
+      "patientType studentId employeeId firstName lastName course yearLevel department position"
     );
   }
 
@@ -114,7 +145,8 @@ export class PatientService {
       throw new AppError("Patient not found", 404);
     }
 
-    const studentId = data.studentId?.trim().toUpperCase();
+    const patientType = data.patientType ?? before.patientType ?? "student";
+    const studentId = (patientType === "student" ? data.studentId : data.employeeId)?.trim().toUpperCase();
     if (studentId) {
       const existing = await Patient.exists({
         _id: { $ne: id },
@@ -124,6 +156,7 @@ export class PatientService {
         throw new AppError(`Student ID ${studentId} is already registered`, 409);
       }
       data.studentId = studentId;
+      if (patientType !== "student") data.employeeId = studentId;
     }
 
     let after: IPatient | null;
@@ -249,6 +282,7 @@ export class PatientService {
     const graduated = await Patient.updateMany(
       {
         isActive: true,
+        patientType: { $in: ["student", null] },
         yearLevel: { $gte: graduatingYearLevel },
         ...notProcessedForTargetYear,
       },
@@ -264,6 +298,7 @@ export class PatientService {
     const promoted = await Patient.updateMany(
       {
         isActive: true,
+        patientType: { $in: ["student", null] },
         yearLevel: { $lt: graduatingYearLevel },
         ...notProcessedForTargetYear,
       },

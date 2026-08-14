@@ -14,8 +14,21 @@ const medicalHistoryService = new MedicalHistoryService();
 // CREATE
 export const createMedicalHistory = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = getAuthenticatedUser(req).id;
-    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies } = req.body;
+    const actor = getAuthenticatedUser(req);
+    const userId = actor.id;
+    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
+
+    if (actor.role === "nurse") {
+      if (!Array.isArray(prescribedItems) || prescribedItems.length === 0) {
+        throw new AppError("A nurse-created medical history entry must include a medication order", 400);
+      }
+      if (diagnosis || labRequest || familyHistory || allergies) {
+        throw new AppError(
+          "Nurse medication orders cannot include physician diagnosis, laboratory, or medical-history fields",
+          403,
+        );
+      }
+    }
 
     const { entry } = await medicalHistoryService.createMedicalHistory({
       patientId,
@@ -27,6 +40,9 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       familyHistory,
       allergies,
       recordedBy: getAuthenticatedObjectId(req),
+    }, {
+      providerRole: actor.role === "nurse" ? "nurse" : "doctor",
+      closureOutcome,
     });
 
     logAudit({
@@ -54,7 +70,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
 
         await notifyActiveNurses({
           kind: "medication_order",
-          title: "Medication requested by doctor",
+          title: `Medication requested by ${actor.role}`,
           message: `${studentName}: ${medicationSummary}`,
           link: `/patients/${patientId}`,
           resourceType: "MedicalHistory",
@@ -72,7 +88,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
     res.status(201).json({
       success: true,
       message: entry.prescribedItems?.length
-        ? "Prescription saved and the nurse was notified"
+        ? "Medication order saved and the nurse was notified"
         : "Medical history entry created successfully",
       data: entry,
     });

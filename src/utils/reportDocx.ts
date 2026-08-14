@@ -91,16 +91,21 @@ export const getReportTitle = (start: Date, end: Date, period: VisitReportPeriod
 
 export const buildReportDocx = async (stats: ReportStats, period: VisitReportPeriod = "custom"): Promise<Buffer> => {
   const periodLabel = formatReportPeriodLabel(stats.periodStart, stats.periodEnd, period);
+  const patientScope = stats.patientTypeFilter
+    ? stats.patientTypeFilter === "employees"
+      ? "teachers and staff"
+      : `${stats.patientTypeFilter === "staff" ? "staff" : `${stats.patientTypeFilter}s`}`
+    : "students, teachers, and staff";
 
   // I. Executive Summary
   const totalVisits = stats.studentAttendance.total;
   const executiveSummary =
     (totalVisits > 0
       ? `This report presents the activities and services provided by the school clinic for ${periodLabel}. ` +
-        `A total of ${totalVisits} student ${totalVisits === 1 ? "visit" : "visits"} ${totalVisits === 1 ? "was" : "were"} recorded during this period. `
+        `A total of ${totalVisits} ${patientScope} ${totalVisits === 1 ? "visit" : "visits"} ${totalVisits === 1 ? "was" : "were"} recorded during this period. `
       : `This report presents the activities and services provided by the school clinic for ${periodLabel}. ` +
         `No clinic visits were recorded during this period. `) +
-    `${stats.uniqueStudentsServed} unique ${stats.uniqueStudentsServed === 1 ? "student was" : "students were"} served through ${totalVisits} clinic visits. ` +
+    `${stats.uniqueStudentsServed} unique ${stats.uniqueStudentsServed === 1 ? "patient was" : "patients were"} served through ${totalVisits} clinic visits. ` +
     `${stats.appointmentStats.total} ${stats.appointmentStats.total === 1 ? "appointment was" : "appointments were"} booked in this period ` +
     `(${stats.appointmentStats.completed} completed, ${stats.appointmentStats.cancelled} cancelled), and ` +
     `Clinical documentation included ${stats.nursingAssessmentsCount} nursing ${stats.nursingAssessmentsCount === 1 ? "assessment" : "assessments"} and ` +
@@ -119,29 +124,15 @@ export const buildReportDocx = async (stats: ReportStats, period: VisitReportPer
       new TableRow({
         children: [headerCell("Category"), headerCell("Male"), headerCell("Female"), headerCell("Total")],
       }),
-      new TableRow({
-        children: [
-          bodyCell("Clinic Visits (Students)"),
-          bodyCell(String(stats.studentAttendance.male), true),
-          bodyCell(String(stats.studentAttendance.female), true),
-          bodyCell(String(stats.studentAttendance.total), true),
-        ],
-      }),
-      new TableRow({
-        children: [
-          bodyCell("Teaching Staff"),
-          bodyCell("N/A - not tracked", true),
-          bodyCell("N/A", true),
-          bodyCell("N/A", true),
-        ],
-      }),
-      new TableRow({
-        children: [
-          bodyCell("Non-Teaching Staff"),
-          bodyCell("N/A - not tracked", true),
-          bodyCell("N/A", true),
-          bodyCell("N/A", true),
-        ],
+      ...(["student", "teacher", "staff"] as const).map((type) => {
+        const attendance = stats.attendanceByPatientType[type];
+        const label = type === "student" ? "Students" : type === "teacher" ? "Teachers" : "Staff";
+        return new TableRow({ children: [
+          bodyCell(label),
+          bodyCell(String(attendance.male), true),
+          bodyCell(String(attendance.female), true),
+          bodyCell(String(attendance.total), true),
+        ] });
       }),
       new TableRow({
         children: [
@@ -155,23 +146,29 @@ export const buildReportDocx = async (stats: ReportStats, period: VisitReportPer
   });
 
   // III. Common Reasons for Visits
+  const complaintTypes = stats.patientTypeFilter === "employees"
+    ? (["teacher", "staff"] as const)
+    : stats.patientTypeFilter
+    ? [stats.patientTypeFilter]
+    : (["student", "teacher", "staff"] as const);
   const complaintRows = stats.complaintCounts.length > 0
-    ? stats.complaintCounts.map(
-        (c) =>
-          new TableRow({
-            children: [bodyCell(c.complaint), bodyCell(String(c.count), true)],
-          })
-      )
+    ? complaintTypes.flatMap((type) => stats.complaintCountsByPatientType[type].map(
+        (c) => new TableRow({ children: [
+          bodyCell(type === "student" ? "Student" : type === "teacher" ? "Teacher" : "Staff"),
+          bodyCell(c.complaint),
+          bodyCell(String(c.count), true),
+        ] }),
+      ))
     : [
         new TableRow({
-          children: [bodyCell("No visits recorded during this period."), bodyCell("-", true)],
+          children: [bodyCell("-"), bodyCell("No visits recorded during this period."), bodyCell("-", true)],
         }),
       ];
 
   const complaintsTable = new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [
-      new TableRow({ children: [headerCell("Illness/Injury"), headerCell("Number of Cases")] }),
+      new TableRow({ children: [headerCell("Patient Type"), headerCell("Illness/Injury"), headerCell("Number of Cases")] }),
       ...complaintRows,
     ],
   });

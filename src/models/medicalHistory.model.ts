@@ -16,7 +16,7 @@ export interface IMedicalHistory extends Document {
   visitId?: mongoose.Types.ObjectId;
   diagnosis: string;
   prescription: string;
-  // Stock-linked items are prescribed by the doctor and dispensed later by a nurse.
+  // Stock-linked items are ordered by an authorized doctor or covering nurse and dispensed by a nurse.
   prescribedItems?: IPrescribedItem[];
   medicationStatus?: "pending" | "accepted" | "dispensing" | "dispensed" | "not_given" | "cancelled";
   medicationClaimedBy?: mongoose.Types.ObjectId;

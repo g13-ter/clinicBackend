@@ -155,9 +155,15 @@ describe("RBAC — invalid token payload", () => {
   it("allows analytics only for doctors and nurses", async () => {
     for (const token of [doctorToken, nurseToken]) {
       const response = await request(app)
-        .get("/api/dashboard/analytics")
+        .get("/api/dashboard/analytics?patientType=teacher")
         .set("Authorization", `Bearer ${token}`);
       expect(response.status).toBe(200);
+      expect(response.body.data.analyticsPatientType).toBe("teacher");
+      expect(response.body.data.analyticsVisitBreakdown).toEqual({
+        student: 0,
+        teacher: expect.any(Number),
+        staff: 0,
+      });
     }
     for (const token of [adminToken, staffToken]) {
       const response = await request(app)
@@ -165,6 +171,13 @@ describe("RBAC — invalid token payload", () => {
         .set("Authorization", `Bearer ${token}`);
       expect(response.status).toBe(403);
     }
+  });
+
+  it("rejects an unsupported analytics patient type", async () => {
+    const response = await request(app)
+      .get("/api/dashboard/analytics?patientType=administrator")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(response.status).toBe(400);
   });
 
   it("rejects a token whose role claim is not in the allowed enum", async () => {

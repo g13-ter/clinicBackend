@@ -13,7 +13,11 @@ import StockMovement from "../models/stockMovement.model";
 
 interface PopulatedPatientRef {
   gender?: string;
+  patientType?: PatientType;
 }
+
+export type PatientType = "student" | "teacher" | "staff";
+export type ReportPatientType = PatientType | "employees";
 
 export interface GenderBreakdown {
   male: number;
@@ -48,9 +52,12 @@ export interface ReportStats {
   // Student visits by gender; staff attendance is not tracked.
   studentAttendance: GenderBreakdown;
   uniqueStudentsServed: number;
+  patientTypeFilter: ReportPatientType | undefined;
+  attendanceByPatientType: Record<PatientType, GenderBreakdown>;
 
   // Free-text complaints sorted by frequency.
   complaintCounts: ComplaintCount[];
+  complaintCountsByPatientType: Record<PatientType, ComplaintCount[]>;
 
   // Current stock only; historical usage is not tracked.
   medicineStock: MedicineStockRow[];
@@ -166,6 +173,7 @@ export interface MedicationUsageDetailRow {
   dispensedAt: Date;
   studentId: string;
   studentName: string;
+  patientType: PatientType;
   complaint: string;
   medicine: string;
   quantity: number;
@@ -177,25 +185,32 @@ export interface MedicationUsageDetailRow {
 export interface VaccinationExportRow {
   studentId: string;
   studentName: string;
+  patientType: PatientType;
   vaccine: string;
   dateAdministered: Date | null;
   notes: string;
 }
 
 export class ReportService {
-  async getClinicSummary(startDate: Date, endDate: Date): Promise<ReportStats> {
+  async getClinicSummary(startDate: Date, endDate: Date, patientType?: ReportPatientType): Promise<ReportStats> {
     if (startDate > endDate) {
       throw new AppError("startDate must be before endDate", 400);
     }
 
-    const visitDateFilter = { visitDate: { $gte: startDate, $lte: endDate }, isActive: true };
-    const appointmentDateFilter = { appointmentDate: { $gte: startDate, $lte: endDate } };
-    const consultationDateFilter = { dateRecorded: { $gte: startDate, $lte: endDate } };
+    const patientTypeQuery: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType === "employees" ? { patientType: { $in: ["teacher", "staff"] } }
+      : patientType ? { patientType } : {};
+    const patientIds = patientType ? await Patient.find(patientTypeQuery).distinct("_id") : undefined;
+    const patientFilter = patientIds ? { patientId: { $in: patientIds } } : {};
+    const visitDateFilter = { visitDate: { $gte: startDate, $lte: endDate }, isActive: true, ...patientFilter };
+    const appointmentDateFilter = { appointmentDate: { $gte: startDate, $lte: endDate }, ...patientFilter };
+    const consultationDateFilter = { dateRecorded: { $gte: startDate, $lte: endDate }, ...patientFilter };
 
     const [visitsInPeriod, allMedicines, appointmentsInPeriod, physicianMedicalRecordsCount, pendingPurchaseRequestsCount] =
       await Promise.all([
         ClinicVisit.find(visitDateFilter)
-          .populate("patientId", "gender")
+          .populate("patientId", "gender patientType")
           .select("complaint patientId nursingAssessment isEmergency status referralFacility referralReason referralOutcome"),
 
         Medicine.find().select("name quantity unit lowStockThreshold"),
@@ -224,6 +239,18 @@ export class ReportService {
       female,
       total: visitsInPeriod.length,
     };
+    const attendanceByPatientType: Record<PatientType, GenderBreakdown> = {
+      student: { male: 0, female: 0, total: 0 },
+      teacher: { male: 0, female: 0, total: 0 },
+      staff: { male: 0, female: 0, total: 0 },
+    };
+    for (const visit of visitsInPeriod) {
+      const patient = visit.patientId as PopulatedPatientRef | null;
+      const type = patient?.patientType ?? "student";
+      attendanceByPatientType[type].total++;
+      if (patient?.gender === "Male") attendanceByPatientType[type].male++;
+      if (patient?.gender === "Female") attendanceByPatientType[type].female++;
+    }
     const uniqueStudentsServed = new Set(visitsInPeriod.map((visit) => String(visit.patientId?._id ?? visit.patientId))).size;
 
     // Common complaints
@@ -236,6 +263,21 @@ export class ReportService {
     const complaintCounts: ComplaintCount[] = Array.from(complaintMap.entries())
       .map(([complaint, count]) => ({ complaint, count }))
       .sort((a, b) => b.count - a.count);
+    const complaintMapsByType: Record<PatientType, Map<string, number>> = {
+      student: new Map(), teacher: new Map(), staff: new Map(),
+    };
+    for (const visit of visitsInPeriod) {
+      const patient = visit.patientId as PopulatedPatientRef | null;
+      const type = patient?.patientType ?? "student";
+      const complaint = visit.complaint?.trim() || "Unspecified";
+      const typeMap = complaintMapsByType[type];
+      typeMap.set(complaint, (typeMap.get(complaint) ?? 0) + 1);
+    }
+    const complaintCountsByPatientType = Object.fromEntries(
+      Object.entries(complaintMapsByType).map(([type, counts]) => [type,
+        [...counts.entries()].map(([complaint, count]) => ({ complaint, count })).sort((a, b) => b.count - a.count),
+      ]),
+    ) as Record<PatientType, ComplaintCount[]>;
 
     // Current medicine stock
     const medicineStock: MedicineStockRow[] = allMedicines.map((med: IMedicine) => ({
@@ -271,7 +313,10 @@ export class ReportService {
       periodStart: startDate,
       periodEnd: endDate,
       studentAttendance,
+      patientTypeFilter: patientType,
+      attendanceByPatientType,
       complaintCounts,
+      complaintCountsByPatientType,
       medicineStock,
       lowStockMedicines,
       appointmentStats,
@@ -466,9 +511,18 @@ export class ReportService {
   async getMedicineUsageExport(
     startDate: Date,
     endDate: Date,
+    patientType?: ReportPatientType,
   ): Promise<MedicineUsageExportRow[]> {
     return MedicineDispense.aggregate<MedicineUsageExportRow>([
       { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
+      ...(patientType ? [
+        { $lookup: { from: "clinicvisits", localField: "visitId", foreignField: "_id", as: "visit" } },
+        { $lookup: { from: "patients", localField: "visit.patientId", foreignField: "_id", as: "patient" } },
+        { $match: patientType === "student"
+          ? { $or: [{ "patient.patientType": "student" }, { "patient.patientType": { $exists: false } }] }
+          : patientType === "employees" ? { "patient.patientType": { $in: ["teacher", "staff"] } }
+          : { "patient.patientType": patientType } },
+      ] : []),
       {
         $group: {
           _id: "$medicineId",
@@ -503,6 +557,7 @@ export class ReportService {
   async getMedicationUsageDetails(
     startDate: Date,
     endDate: Date,
+    patientType?: ReportPatientType,
   ): Promise<MedicationUsageDetailRow[]> {
     return MedicineDispense.aggregate<MedicationUsageDetailRow>([
       { $match: { createdAt: { $gte: startDate, $lte: endDate } } },
@@ -510,6 +565,10 @@ export class ReportService {
       { $lookup: { from: "clinicvisits", localField: "visitId", foreignField: "_id", as: "visit" } },
       { $unwind: { path: "$visit", preserveNullAndEmptyArrays: true } },
       { $lookup: { from: "patients", localField: "visit.patientId", foreignField: "_id", as: "patient" } },
+      ...(patientType ? [{ $match: patientType === "student"
+        ? { $or: [{ "patient.patientType": "student" }, { "patient.patientType": { $exists: false } }] }
+        : patientType === "employees" ? { "patient.patientType": { $in: ["teacher", "staff"] } }
+        : { "patient.patientType": patientType } }] : []),
       { $lookup: { from: "users", localField: "dispensedBy", foreignField: "_id", as: "actor" } },
       {
         $project: {
@@ -527,6 +586,7 @@ export class ReportService {
               },
             },
           },
+          patientType: { $ifNull: [{ $arrayElemAt: ["$patient.patientType", 0] }, "student"] },
           complaint: { $ifNull: ["$visit.complaint", ""] },
           medicine: {
             $ifNull: [{ $arrayElemAt: ["$medicine.name", 0] }, "Archived medicine"],
@@ -712,18 +772,24 @@ export class ReportService {
     };
   }
 
-  async getVaccinationExport(): Promise<VaccinationExportRow[]> {
-    const students = await Patient.find({ isActive: true })
-      .select("studentId firstName lastName immunizations")
+  async getVaccinationExport(patientType?: ReportPatientType): Promise<VaccinationExportRow[]> {
+    const typeFilter: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType === "employees" ? { patientType: { $in: ["teacher", "staff"] } }
+      : patientType ? { patientType } : {};
+    const students = await Patient.find({ isActive: true, ...typeFilter })
+      .select("patientType studentId firstName lastName immunizations")
       .sort({ lastName: 1, firstName: 1 })
       .lean();
 
     return students.flatMap((student) => {
       const studentName = `${student.firstName} ${student.lastName}`;
+      const patientType = student.patientType ?? "student";
       if (!student.immunizations?.length) {
         return [{
           studentId: student.studentId,
           studentName,
+          patientType,
           vaccine: "No immunization recorded",
           dateAdministered: null,
           notes: "",
@@ -733,6 +799,7 @@ export class ReportService {
       return student.immunizations.map((immunization) => ({
         studentId: student.studentId,
         studentName,
+        patientType,
         vaccine: immunization.vaccine,
         dateAdministered: immunization.dateAdministered ?? null,
         notes: immunization.notes ?? "",
