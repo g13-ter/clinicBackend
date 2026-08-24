@@ -6,6 +6,7 @@ import { PERMISSIONS } from "../src/config/permissions";
 import { createTestUserAndLogin, deleteTestUser } from "./helpers";
 import Appointment from "../src/models/appointment.model";
 import Patient from "../src/models/patient.model";
+import ClinicVisit from "../src/models/clinicVisit.model";
 
 dotenv.config();
 
@@ -42,7 +43,7 @@ beforeAll(async () => {
     studentId: `TEST-RBAC-${Date.now()}`,
     firstName: "RBAC",
     lastName: "Student",
-    age: 19,
+    age: 12,
     gender: "Female",
     course: "BSIT",
     yearLevel: 2,
@@ -158,6 +159,7 @@ describe("RBAC — invalid token payload", () => {
         .get("/api/dashboard/analytics?patientType=teacher")
         .set("Authorization", `Bearer ${token}`);
       expect(response.status).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
       expect(response.body.data.analyticsPatientType).toBe("teacher");
       expect(response.body.data.analyticsVisitBreakdown).toEqual({
         student: 0,
@@ -185,6 +187,39 @@ describe("RBAC — invalid token payload", () => {
       .get("/api/dashboard/analytics?patientType=administrator")
       .set("Authorization", `Bearer ${nurseToken}`);
     expect(response.status).toBe(400);
+  });
+
+  it("includes BMI recorded by a nurse for patients under 18", async () => {
+    const before = await request(app)
+      .get("/api/dashboard/analytics?patientType=student")
+      .set("Authorization", `Bearer ${nurseToken}`);
+    expect(before.status).toBe(200);
+
+    const visit = await request(app)
+      .post("/api/visits")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        patientId,
+        complaint: "BMI screening",
+        heightCm: 100,
+        weightKg: 40,
+        nursingAssessment: "Routine nursing assessment",
+      });
+
+    expect(visit.status).toBe(201);
+    expect(visit.body.data.bmi).toBe(40);
+
+    try {
+      const after = await request(app)
+        .get("/api/dashboard/analytics?patientType=student")
+        .set("Authorization", `Bearer ${nurseToken}`);
+
+      expect(after.status).toBe(200);
+      expect(after.body.data.bmiRecordedCount).toBe(before.body.data.bmiRecordedCount + 1);
+      expect(after.body.data.bmiBreakdown.obese).toBe(before.body.data.bmiBreakdown.obese + 1);
+    } finally {
+      await ClinicVisit.findByIdAndDelete(visit.body.data._id);
+    }
   });
 
   it("rejects a token whose role claim is not in the allowed enum", async () => {

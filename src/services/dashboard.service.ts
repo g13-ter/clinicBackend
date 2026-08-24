@@ -258,9 +258,6 @@ export class DashboardService {
       ]),
       ClinicVisit.aggregate<{ _id: "underweight" | "normalWeight" | "overweight" | "obese"; count: number }>([
         { $match: { ...analyticsRange, ...analyticsPatientFilter, bmi: { $type: "number" } } },
-        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
-        { $unwind: "$patient" },
-        { $match: { "patient.age": { $gte: 18 } } },
         {
           $project: {
             category: {
