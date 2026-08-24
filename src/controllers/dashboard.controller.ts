@@ -49,6 +49,9 @@ export const getSuperAdminDashboard = async (_req: Request, res: Response, next:
 
 export const getAnalyticsStats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Analytics changes whenever a clinical visit is saved; prevent browsers and
+    // deployment proxies from serving a stale pre-save snapshot.
+    res.set("Cache-Control", "no-store");
     const requestedType = (req.query.patientType ?? "all") as string;
     if (!["all", "student", "teacher", "staff"].includes(requestedType)) {
       throw new AppError("patientType must be all, student, teacher, or staff", 400);
