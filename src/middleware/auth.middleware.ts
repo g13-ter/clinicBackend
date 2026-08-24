@@ -62,12 +62,23 @@ const authenticate = async (
     };
     req.termsAccepted =
       user.termsAccepted === true && user.termsVersionAccepted === CURRENT_TERMS_VERSION;
+    req.passwordChangeRequired = user.mustChangePassword === true;
 
     if (requireTermsAcceptance && !req.termsAccepted) {
       res.status(403).json({
         success: false,
         code: "TERMS_ACCEPTANCE_REQUIRED",
         message: "You must accept the Terms and Agreement before accessing the system",
+      });
+      return;
+    }
+
+    const passwordChangeEndpoint = req.originalUrl.split("?", 1)[0] === "/api/users/me";
+    if (requireTermsAcceptance && req.passwordChangeRequired && !passwordChangeEndpoint) {
+      res.status(403).json({
+        success: false,
+        code: "PASSWORD_CHANGE_REQUIRED",
+        message: "Change your temporary password before accessing the system",
       });
       return;
     }

@@ -22,6 +22,9 @@ const run = async (): Promise<void> => {
     fail("MONGO_TRANSACTIONS_ENABLED must be explicitly set to true");
   }
   if (!process.env.RESEND_API_KEY) fail("RESEND_API_KEY is required");
+  if (!/^[a-f0-9]{64}$/i.test(process.env.BACKUP_ENCRYPTION_KEY ?? "")) {
+    fail("BACKUP_ENCRYPTION_KEY must be configured before deployment");
+  }
   if (!process.env.RESEND_WEBHOOK_SECRET) fail("RESEND_WEBHOOK_SECRET is required");
   if (!process.env.EMAIL_FROM || process.env.EMAIL_FROM.includes("yourdomain.com")) {
     fail("EMAIL_FROM must use the verified production mail domain");

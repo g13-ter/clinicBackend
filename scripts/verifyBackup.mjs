@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import dotenv from "dotenv";
+import { gunzipSync } from "node:zlib";
 
 dotenv.config();
 
@@ -22,4 +23,6 @@ const decipher = createDecipheriv("aes-256-gcm", Buffer.from(keyText, "hex"), iv
 decipher.setAuthTag(tag);
 const archive = Buffer.concat([decipher.update(payload), decipher.final()]);
 if (archive[0] !== 0x1f || archive[1] !== 0x8b) throw new Error("Decrypted backup is not a gzip archive");
-console.log(`Backup verified successfully: ${path.resolve(backupPath)} (${archive.length} decrypted bytes)`);
+const restoredArchive = gunzipSync(archive);
+if (restoredArchive.length < 100) throw new Error("Decrypted MongoDB archive is unexpectedly empty");
+console.log(`Backup verified successfully: ${path.resolve(backupPath)} (${restoredArchive.length} uncompressed bytes)`);

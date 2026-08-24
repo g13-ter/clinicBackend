@@ -1,9 +1,16 @@
 import express from "express";
-import { getAnalyticsStats, getDashboardStats } from "../controllers/dashboard.controller";
+import { getAnalyticsStats, getDashboardStats, getSuperAdminDashboard } from "../controllers/dashboard.controller";
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 
 const router = express.Router();
+
+router.get(
+  "/superadmin",
+  protect,
+  allowRoles("superadmin"),
+  getSuperAdminDashboard,
+);
 
 // Each role displays a subset of the same aggregate data.
 router.get(

@@ -79,7 +79,9 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ["X-Request-ID"],
 }));
-app.use(express.json());
+// Keep a fixed, validated request-size ceiling. This protects API workers from
+// oversized JSON bodies and avoids relying on environment-derived parser limits.
+app.use(express.json({ limit: "256kb" }));
 
 // Clinical API responses must never be retained by browsers or shared proxies.
 app.use("/api", (_req, res, next) => {

@@ -25,7 +25,7 @@ const notifyDoctorsForVisit = async (
     message: kind === "emergency"
       ? `${patientName}: ${visit.emergencyDetails || visit.complaint}`
       : `${patientName} is ready for the doctor.`,
-    link: `/clinical-workspace?tab=consultation&visitId=${visit._id}&patientId=${visit.patientId}`,
+    link: `/dashboard?tab=consultation&visitId=${visit._id}&patientId=${visit.patientId}`,
     resourceType: "ClinicVisit" as const,
     resourceId: String(visit._id),
     dedupeKey: `doctor:${kind}:${visit._id}`,

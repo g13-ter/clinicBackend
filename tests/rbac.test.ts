@@ -164,6 +164,13 @@ describe("RBAC — invalid token payload", () => {
         teacher: expect.any(Number),
         staff: 0,
       });
+      expect(response.body.data.bmiRecordedCount).toEqual(expect.any(Number));
+      expect(response.body.data.bmiBreakdown).toEqual({
+        underweight: expect.any(Number),
+        normalWeight: expect.any(Number),
+        overweight: expect.any(Number),
+        obese: expect.any(Number),
+      });
     }
     for (const token of [adminToken, staffToken]) {
       const response = await request(app)

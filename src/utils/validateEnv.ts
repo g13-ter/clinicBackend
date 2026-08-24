@@ -36,6 +36,11 @@ export const validateEnv = (): void => {
     process.exit(1);
   }
 
+  if (process.env.NODE_ENV === "production" && !/^[a-f0-9]{64}$/i.test(process.env.BACKUP_ENCRYPTION_KEY ?? "")) {
+    logger.error("FATAL ERROR: BACKUP_ENCRYPTION_KEY must be configured so encrypted backups can run.");
+    process.exit(1);
+  }
+
   if (
     process.env.NODE_ENV === "production" &&
     process.env.MONGO_TRANSACTIONS_ENABLED === "false"

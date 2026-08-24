@@ -91,15 +91,26 @@ describe("Users - Admin only access", () => {
         name: "TEST Created Staff",
         email: createdUserEmail,
         password: TEST_PASSWORD,
-        role: "staff"
+        role: "staff",
+        actorPassword: TEST_PASSWORD,
       });
 
     expect(res.status).toBe(201);
     expect(res.body.data.role).toBe("staff");
+    expect(res.body.data.mustChangePassword).toBe(true);
 
     // remember this so afterAll can clean it up
     createdUserId = res.body.data._id;
 
+  });
+
+  it("requires an admin to confirm their password for account changes", async () => {
+    const res = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ name: "TEST No Step Up", email: `TEST_no_step_up_${Date.now()}@clinic.com`, password: TEST_PASSWORD, role: "staff" });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toContain("Confirm your current password");
   });
 
   it("rejects duplicate emails regardless of letter case", async () => {
@@ -111,6 +122,7 @@ describe("Users - Admin only access", () => {
         email: createdUserEmail?.toUpperCase(),
         password: TEST_PASSWORD,
         role: "staff",
+        actorPassword: TEST_PASSWORD,
       });
 
     expect(res.status).toBe(409);
@@ -128,7 +140,8 @@ describe("Users - Admin only access", () => {
 
     const deactivate = await request(app)
       .delete(`/api/users/${createdUserId}`)
-      .set("Authorization", `Bearer ${adminToken}`);
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ actorPassword: TEST_PASSWORD });
     expect(deactivate.status).toBe(200);
 
     const revoked = await request(app)
@@ -149,7 +162,7 @@ describe("Users - Admin only access", () => {
     const reactivate = await request(app)
       .put(`/api/users/${createdUserId}`)
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ isActive: true });
+      .send({ isActive: true, actorPassword: TEST_PASSWORD });
     expect(reactivate.status).toBe(200);
     expect(reactivate.body.data.isActive).toBe(true);
   });
@@ -216,13 +229,21 @@ describe("Users - Admin only access", () => {
         email: `TEST_managed_admin_${Date.now()}@clinic.com`,
         password: TEST_PASSWORD,
         role: "admin",
+        actorPassword: TEST_PASSWORD,
       });
     expect(create.status).toBe(201);
     managedAdminId = create.body.data._id;
+    expect(await AuditLog.findOne({
+      action: "create",
+      resource: "User",
+      resourceId: managedAdminId,
+      performedBy: superAdminId,
+    })).toBeTruthy();
 
     const deactivate = await request(app)
       .delete(`/api/users/${managedAdminId}`)
-      .set("Authorization", `Bearer ${superAdminToken}`);
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({ actorPassword: TEST_PASSWORD });
     expect(deactivate.status).toBe(200);
     expect(deactivate.body.data.isActive).toBe(false);
     expect(deactivate.body.data.deactivatedAt).toBeTruthy();
@@ -231,9 +252,35 @@ describe("Users - Admin only access", () => {
     const reactivate = await request(app)
       .put(`/api/users/${managedAdminId}`)
       .set("Authorization", `Bearer ${superAdminToken}`)
-      .send({ isActive: true });
+      .send({ isActive: true, actorPassword: TEST_PASSWORD });
     expect(reactivate.status).toBe(200);
     expect(reactivate.body.data.isActive).toBe(true);
+  });
+
+  it("requires password confirmation for privileged account changes", async () => {
+    const missingConfirmation = await request(app)
+      .post("/api/users")
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({
+        name: "TEST Unconfirmed Admin",
+        email: `TEST_unconfirmed_admin_${Date.now()}@clinic.com`,
+        password: TEST_PASSWORD,
+        role: "admin",
+      });
+    expect(missingConfirmation.status).toBe(403);
+    expect(await AuditLog.findOne({
+      action: "create",
+      resource: "User",
+      resourceId: "new-account",
+      performedBy: superAdminId,
+      "changes.after.successful": false,
+    })).toBeTruthy();
+
+    const wrongConfirmation = await request(app)
+      .put(`/api/users/${managedAdminId}`)
+      .set("Authorization", `Bearer ${superAdminToken}`)
+      .send({ isActive: true, actorPassword: "incorrect-password" });
+    expect(wrongConfirmation.status).toBe(403);
   });
 
   it("prevents and audits Super Admin self-deactivation attempts", async () => {
@@ -259,6 +306,22 @@ describe("Users - Admin only access", () => {
     expect(res.status).toBe(200);
     expect(res.body.data.some((user: { _id: string }) => user._id === superAdminId)).toBe(true);
     expect(res.body.data.some((user: { role: string }) => user.role === "admin")).toBe(true);
+  });
+
+  it("serves enforced permissions and aggregate dashboard data to Super Admin", async () => {
+    const permissions = await request(app)
+      .get("/api/users/role-permissions")
+      .set("Authorization", `Bearer ${superAdminToken}`);
+    expect(permissions.status).toBe(200);
+    expect(permissions.body.data.find((item: { role: string }) => item.role === "superadmin").capabilities)
+      .toContain("users.managePrivileged");
+
+    const dashboard = await request(app)
+      .get("/api/dashboard/superadmin")
+      .set("Authorization", `Bearer ${superAdminToken}`);
+    expect(dashboard.status).toBe(200);
+    expect(dashboard.body.data.accounts.total).toEqual(expect.any(Number));
+    expect(dashboard.body.data.recentPrivilegedActivity).toEqual(expect.any(Array));
   });
 
 

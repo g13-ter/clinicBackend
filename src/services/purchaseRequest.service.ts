@@ -2,7 +2,7 @@ import PurchaseRequest, { IPurchaseRequest, PurchaseRequestStatus } from "../mod
 import Medicine from "../models/medicine.model";
 import { AppError } from "../middleware/error.middleware";
 import { PaginationParams } from "../utils/pagination";
-import { Types } from "mongoose";
+import { Types, type ClientSession } from "mongoose";
 import InventoryBatch from "../models/inventoryBatch.model";
 import StockMovement from "../models/stockMovement.model";
 import { assertInventoryPeriodOpen } from "./monthlyInventory.service";
@@ -102,15 +102,16 @@ export class PurchaseRequestService {
   async reviewRequest(
     id: string,
     data: ReviewPurchaseRequestInput,
+    session?: ClientSession,
   ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
-    const before = await PurchaseRequest.findById(id);
+    const before = await PurchaseRequest.findById(id).session(session ?? null);
 
     if (!before) {
       throw new AppError("Purchase request not found", 404);
     }
 
     if (before.status !== "pending") {
-      throw new AppError(`This request has already been ${before.status}`, 400);
+      throw new AppError(`This request has already been ${before.status}`, 409);
     }
 
     const updatePayload: Partial<IPurchaseRequest> = {
@@ -120,13 +121,14 @@ export class PurchaseRequestService {
     };
     if (data.reviewNotes !== undefined) updatePayload.reviewNotes = data.reviewNotes;
 
-    const after = await PurchaseRequest.findByIdAndUpdate(id, updatePayload, {
+    const after = await PurchaseRequest.findOneAndUpdate({ _id: id, status: "pending" }, updatePayload, {
       returnDocument: "after",
       runValidators: true,
+      ...(session ? { session } : {}),
     });
 
     if (!after) {
-      throw new AppError("Purchase request not found", 404);
+      throw new AppError("Purchase request status changed. Refresh and try again.", 409);
     }
 
     return { before, after };
@@ -135,8 +137,9 @@ export class PurchaseRequestService {
   async markOrdered(
     id: string,
     data: { supplier?: string; estimatedCost?: number; reviewedBy: Types.ObjectId },
+    session?: ClientSession,
   ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
-    const before = await PurchaseRequest.findById(id);
+    const before = await PurchaseRequest.findById(id).session(session ?? null);
     if (!before) throw new AppError("Purchase request not found", 404);
     if (before.status !== "approved") {
       throw new AppError("Only an approved request can be marked ordered", 409);
@@ -150,7 +153,7 @@ export class PurchaseRequestService {
         ...(data.supplier ? { supplier: data.supplier } : {}),
         ...(data.estimatedCost !== undefined ? { estimatedCost: data.estimatedCost } : {}),
       },
-      { returnDocument: "after", runValidators: true },
+      { returnDocument: "after", runValidators: true, ...(session ? { session } : {}) },
     );
     if (!after) throw new AppError("Purchase request status changed. Refresh and try again.", 409);
     return { before, after };
@@ -159,8 +162,9 @@ export class PurchaseRequestService {
   async cancelRequest(
     id: string,
     data: { reviewNotes?: string; reviewedBy: Types.ObjectId },
+    session?: ClientSession,
   ): Promise<{ before: IPurchaseRequest; after: IPurchaseRequest }> {
-    const before = await PurchaseRequest.findById(id);
+    const before = await PurchaseRequest.findById(id).session(session ?? null);
     if (!before) throw new AppError("Purchase request not found", 404);
     if (!["pending", "approved", "ordered"].includes(before.status)) {
       throw new AppError(`A ${before.status} request cannot be cancelled`, 409);
@@ -174,7 +178,7 @@ export class PurchaseRequestService {
         reviewedAt: new Date(),
         ...(data.reviewNotes ? { reviewNotes: data.reviewNotes } : {}),
       },
-      { returnDocument: "after", runValidators: true },
+      { returnDocument: "after", runValidators: true, ...(session ? { session } : {}) },
     );
     if (!after) {
       throw new AppError("Purchase request status changed. Refresh and try again.", 409);

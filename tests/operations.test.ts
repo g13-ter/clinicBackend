@@ -81,6 +81,16 @@ describe("School-year rollover", () => {
 });
 
 describe("Purchase request lifecycle", () => {
+  it("allows only one concurrent review decision", async () => {
+    const created = await request(app).post("/api/purchase-requests").set("Authorization", `Bearer ${nurseToken}`).send({ itemName: `TEST Concurrent ${Date.now()}`, unit: "boxes", quantityRequested: 3, reason: "Concurrency regression test" });
+    const requestId = created.body.data._id as string;
+    requestIds.push(requestId);
+    const [approved, rejected] = await Promise.all([
+      request(app).put(`/api/purchase-requests/${requestId}/review`).set("Authorization", `Bearer ${adminToken}`).send({ status: "approved" }),
+      request(app).put(`/api/purchase-requests/${requestId}/review`).set("Authorization", `Bearer ${adminToken}`).send({ status: "rejected" }),
+    ]);
+    expect([approved.status, rejected.status].sort()).toEqual([200, 409]);
+  });
   it("approves, orders, and receives a new medicine into a batch", async () => {
     const createResponse = await request(app)
       .post("/api/purchase-requests")
@@ -118,17 +128,19 @@ describe("Purchase request lifecycle", () => {
     expect(receiveResponse.body.data.status).toBe("received");
 
     const updatedRequest = await PurchaseRequest.findById(requestId);
-    const medicine = await Medicine.findById(updatedRequest?.medicineId);
-    const batch = await InventoryBatch.findOne({ medicineId: medicine?._id });
-    expect(medicine?.quantity).toBe(40);
+    if (!updatedRequest) throw new Error("Expected the received purchase request to exist");
+    const medicine = await Medicine.findById(updatedRequest.medicineId);
+    if (!medicine) throw new Error("Expected the received medicine to exist");
+    const batch = await InventoryBatch.findOne({ medicineId: medicine._id });
+    expect(medicine.quantity).toBe(40);
     expect(batch?.quantityRemaining).toBe(40);
     const receiptMovement = await StockMovement.findOne({
-      medicineId: medicine?._id,
+      medicineId: medicine._id,
       type: "received",
     });
     expect(receiptMovement?.quantityChange).toBe(40);
     expect(receiptMovement?.balanceAfter).toBe(40);
-    medicineIds.push(String(medicine?._id));
+    medicineIds.push(String(medicine._id));
     batchIds.push(String(batch?._id));
   });
 

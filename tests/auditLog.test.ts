@@ -5,7 +5,7 @@ import app from "../src/app";
 import Patient from "../src/models/patient.model";
 import User from "../src/models/user.model";
 import AuditLog from "../src/models/auditLog.model";
-import { createTestUserAndLogin, deleteTestUser } from "./helpers";
+import { createTestUserAndLogin, deleteTestUser, TEST_PASSWORD } from "./helpers";
 
 dotenv.config();
 
@@ -270,7 +270,8 @@ describe("Audit Logs - sensitive data is never exposed", () => {
         name: "TEST Audit Staff",
         email: `TEST_audit_staff_${Date.now()}@clinic.com`,
         password: "somepassword123",
-        role: "staff"
+        role: "staff",
+        actorPassword: TEST_PASSWORD,
       });
 
     expect(createRes.status).toBe(201);

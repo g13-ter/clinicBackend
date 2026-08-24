@@ -7,6 +7,7 @@ import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUse
 import { enqueueNotification } from "../services/notificationOutbox.service";
 import logger, { errorMetadata } from "../utils/logger";
 import type { PurchaseRequestStatus } from "../models/purchaseRequest.model";
+import { withMongoTransaction } from "../utils/transaction";
 
 const purchaseRequestService = new PurchaseRequestService();
 const userService = new UserService();
@@ -118,21 +119,10 @@ export const reviewPurchaseRequest = async (req: Request, res: Response, next: N
     const userId = getAuthenticatedUser(req).id;
     const { status, reviewNotes } = req.body;
 
-    const { before, after } = await purchaseRequestService.reviewRequest(id, {
-      status,
-      reviewNotes,
-      reviewedBy: getAuthenticatedObjectId(req),
-    });
-
-    logAudit({
-      action: "update",
-      resource: "PurchaseRequest",
-      resourceId: id,
-      performedBy: userId,
-      before: before.toObject(),
-      after: after.toObject(),
-      method: req.method,
-      path: req.originalUrl,
+    const { after } = await withMongoTransaction(async (session) => {
+      const result = await purchaseRequestService.reviewRequest(id, { status, reviewNotes, reviewedBy: getAuthenticatedObjectId(req) }, session);
+      await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: id, performedBy: userId, before: result.before.toObject(), after: result.after.toObject(), method: req.method, path: req.originalUrl, ...(session ? { session } : {}), required: true });
+      return result;
     });
 
     res.status(200).json({
@@ -148,11 +138,11 @@ export const reviewPurchaseRequest = async (req: Request, res: Response, next: N
 export const markPurchaseRequestOrdered = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = getAuthenticatedUser(req);
-    const { before, after } = await purchaseRequestService.markOrdered(req.params.id as string, {
-      ...req.body,
-      reviewedBy: getAuthenticatedObjectId(req),
+    const { after } = await withMongoTransaction(async (session) => {
+      const result = await purchaseRequestService.markOrdered(req.params.id as string, { ...req.body, reviewedBy: getAuthenticatedObjectId(req) }, session);
+      await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: String(result.after._id), performedBy: user.id, before: result.before.toObject(), after: result.after.toObject(), method: req.method, path: req.originalUrl, ...(session ? { session } : {}), required: true });
+      return result;
     });
-    await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: String(after._id), performedBy: user.id, before: before.toObject(), after: after.toObject(), method: req.method, path: req.originalUrl });
     res.status(200).json({ success: true, message: "Purchase request marked as ordered", data: after });
   } catch (error) {
     next(error);
@@ -162,22 +152,10 @@ export const markPurchaseRequestOrdered = async (req: Request, res: Response, ne
 export const cancelPurchaseRequest = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const user = getAuthenticatedUser(req);
-    const { before, after } = await purchaseRequestService.cancelRequest(
-      req.params.id as string,
-      {
-        reviewNotes: req.body.reviewNotes,
-        reviewedBy: getAuthenticatedObjectId(req),
-      },
-    );
-    await logAudit({
-      action: "update",
-      resource: "PurchaseRequest",
-      resourceId: String(after._id),
-      performedBy: user.id,
-      before: before.toObject(),
-      after: after.toObject(),
-      method: req.method,
-      path: req.originalUrl,
+    const { after } = await withMongoTransaction(async (session) => {
+      const result = await purchaseRequestService.cancelRequest(req.params.id as string, { reviewNotes: req.body.reviewNotes, reviewedBy: getAuthenticatedObjectId(req) }, session);
+      await logAudit({ action: "update", resource: "PurchaseRequest", resourceId: String(result.after._id), performedBy: user.id, before: result.before.toObject(), after: result.after.toObject(), method: req.method, path: req.originalUrl, ...(session ? { session } : {}), required: true });
+      return result;
     });
     res.status(200).json({
       success: true,

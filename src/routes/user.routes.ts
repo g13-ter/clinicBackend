@@ -9,12 +9,14 @@ import {
   updateCurrentUserProfile,
   updateUser,
   deleteUser,
+  getRolePermissions,
 } from "../controllers/user.controller";
 
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { registerSchema, updateOwnProfileSchema, updateUserSchema } from "../validators/schemas";
+import { privilegedActionSchema, registerSchema, updateOwnProfileSchema, updateUserSchema } from "../validators/schemas";
+import { privilegedActionLimiter } from "../middleware/rateLimit.middleware";
 
 const router = express.Router();
 
@@ -38,6 +40,13 @@ router.get(
   "/me",
   protect,
   getCurrentUserProfile
+);
+
+router.get(
+  "/role-permissions",
+  protect,
+  allowRoles("superadmin"),
+  getRolePermissions,
 );
 
 
@@ -67,6 +76,7 @@ router.post(
   "/",
   protect,
   allowRoles("admin", "superadmin"),
+  privilegedActionLimiter,
   validateBody(registerSchema),
   createUser
 );
@@ -78,6 +88,7 @@ router.put(
   "/:id",
   protect,
   allowRoles("admin", "superadmin"),
+  privilegedActionLimiter,
   validateBody(updateUserSchema),
   updateUser
 );
@@ -89,6 +100,8 @@ router.delete(
   "/:id",
   protect,
   allowRoles("admin", "superadmin"),
+  privilegedActionLimiter,
+  validateBody(privilegedActionSchema),
   deleteUser
 );
 

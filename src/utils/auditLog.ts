@@ -1,6 +1,7 @@
 import AuditLog, { AuditAction } from "../models/auditLog.model";
 import User from "../models/user.model";
 import logger, { errorMetadata } from "./logger";
+import type { ClientSession } from "mongoose";
 
 const CLINICAL_RESOURCES = new Set([
   "Patient",
@@ -14,8 +15,7 @@ const SECRET_FIELDS = new Set([
   "password",
   "resetPasswordToken",
   "resetPasswordExpires",
-  "mfaSecret",
-  "mfaRecoveryCodes",
+  "actorPassword",
 ]);
 
 // Audit trails must prove what changed without becoming a second clinical record.
@@ -55,6 +55,8 @@ interface LogAuditParams {
   after?: Record<string, unknown>;
   method?: string;
   path?: string;
+  session?: ClientSession;
+  required?: boolean;
 }
 
 // Record data changes without allowing audit failures to fail the request.
@@ -72,9 +74,10 @@ export const logAudit = async (params: LogAuditParams): Promise<void> => {
   try {
     const actor = await User.findById(params.performedBy)
       .select("name email role")
+      .session(params.session ?? null)
       .lean();
 
-    await AuditLog.create({
+    await AuditLog.create([{
       action: params.action,
       resource: params.resource,
       resourceId: params.resourceId,
@@ -94,7 +97,7 @@ export const logAudit = async (params: LogAuditParams): Promise<void> => {
           },
       changes,
       metadata,
-    });
+    }], params.session ? { session: params.session } : {});
   } catch (error) {
     logger.error("audit_log_write_failed", {
       action: params.action,
@@ -102,5 +105,6 @@ export const logAudit = async (params: LogAuditParams): Promise<void> => {
       resourceId: params.resourceId,
       ...errorMetadata(error),
     });
+    if (params.required) throw error;
   }
 };

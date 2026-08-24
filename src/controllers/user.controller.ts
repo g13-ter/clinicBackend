@@ -3,32 +3,63 @@ import { UserService } from "../services/user.service";
 import { getPaginationParams, buildPaginationMeta } from "../utils/pagination";
 import { logAudit } from "../utils/auditLog";
 import { getAuthenticatedUser } from "../utils/authUser";
+import { getRolePermissionMatrix } from "../config/permissions";
+import { withMongoTransaction } from "../utils/transaction";
 
 const userService = new UserService();
+
+export const getRolePermissions = (_req: Request, res: Response): void => {
+  res.status(200).json({
+    success: true,
+    message: "Role permissions retrieved successfully",
+    data: getRolePermissionMatrix(),
+  });
+};
 
 // CREATE
 export const createUser = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const actor = getAuthenticatedUser(req);
     const performedBy = actor.id;
-    const { name, email, password, role } = req.body;
-    const user = await userService.createUser(actor.role, { name, email, password, role });
+    const { name, email, password, role, actorPassword } = req.body;
+    const user = await withMongoTransaction(async (session) => {
+      const created = await userService.createUser(actor.id, actor.role, actorPassword, { name, email, password, role }, session);
+      const { password: _omit, ...safeCreated } = created.toObject();
+      await logAudit({
+        action: "create",
+        resource: "User",
+        resourceId: String(created._id),
+        performedBy,
+        after: safeCreated,
+        method: req.method,
+        path: req.originalUrl,
+        ...(session ? { session } : {}),
+        required: true,
+      });
+      return created;
+    });
 
     // Never expose password data.
     const { password: _omit, ...safeUser } = user.toObject();
 
-    await logAudit({
-      action: "create",
-      resource: "User",
-      resourceId: String(user._id),
-      performedBy,
-      after: safeUser,
-      method: req.method,
-      path: req.originalUrl,
-    });
-
     res.status(201).json({ success: true, message: "User created successfully", data: safeUser });
   } catch (error) {
+    if (req.user?.id) {
+      await logAudit({
+        action: "create",
+        resource: "User",
+        resourceId: "new-account",
+        performedBy: req.user.id,
+        after: {
+          attempted: true,
+          successful: false,
+          requestedRole: req.body?.role,
+          reason: error instanceof Error ? error.message : "Unknown error",
+        },
+        method: req.method,
+        path: req.originalUrl,
+      });
+    }
     next(error);
   }
 };
@@ -80,23 +111,45 @@ export const updateUser = async (req: Request, res: Response, next: NextFunction
     const id = req.params.id as string;
     const actor = getAuthenticatedUser(req);
     const performedBy = actor.id;
-    const { name, email, password, role, isActive } = req.body;
+    const { name, email, password, role, isActive, actorPassword } = req.body;
 
-    const { before, after } = await userService.updateUser(id, actor.id, actor.role, { name, email, password, role, isActive });
-
-    await logAudit({
-      action: before.isActive === false && after.isActive === true ? "reactivate" : "update",
-      resource: "User",
-      resourceId: id,
-      performedBy,
-      before: before.toObject(),
-      after: after.toObject(),
-      method: req.method,
-      path: req.originalUrl,
+    const { before, after } = await withMongoTransaction(async (session) => {
+      const result = await userService.updateUser(id, actor.id, actor.role, actorPassword, { name, email, password, role, isActive }, session);
+      await logAudit({
+        action: result.before.isActive === false && result.after.isActive === true ? "reactivate" : "update",
+        resource: "User",
+        resourceId: id,
+        performedBy,
+        before: result.before.toObject(),
+        after: result.after.toObject(),
+        method: req.method,
+        path: req.originalUrl,
+        ...(session ? { session } : {}),
+        required: true,
+      });
+      return result;
     });
 
     res.status(200).json({ success: true, message: "User updated successfully", data: after });
   } catch (error) {
+    if (req.user?.id) {
+      await logAudit({
+        action: "update",
+        resource: "User",
+        resourceId: req.params.id as string,
+        performedBy: req.user.id,
+        after: {
+          attempted: true,
+          successful: false,
+          requestedRole: req.body?.role,
+          passwordReset: Boolean(req.body?.password),
+          reactivation: req.body?.isActive === true,
+          reason: error instanceof Error ? error.message : "Unknown error",
+        },
+        method: req.method,
+        path: req.originalUrl,
+      });
+    }
     next(error);
   }
 };
@@ -109,17 +162,21 @@ export const deleteUser = async (req: Request, res: Response, next: NextFunction
     const actor = getAuthenticatedUser(req);
     performedBy = actor.id;
 
-    const { before, after } = await userService.deactivateUser(id, performedBy, actor.role);
-
-    await logAudit({
-      action: "deactivate",
-      resource: "User",
-      resourceId: id,
-      performedBy,
-      before: before.toObject(),
-      after: after.toObject(),
-      method: req.method,
-      path: req.originalUrl,
+    const { before, after } = await withMongoTransaction(async (session) => {
+      const result = await userService.deactivateUser(id, performedBy, actor.role, req.body?.actorPassword, session);
+      await logAudit({
+        action: "deactivate",
+        resource: "User",
+        resourceId: id,
+        performedBy,
+        before: result.before.toObject(),
+        after: result.after.toObject(),
+        method: req.method,
+        path: req.originalUrl,
+        ...(session ? { session } : {}),
+        required: true,
+      });
+      return result;
     });
 
     res.status(200).json({

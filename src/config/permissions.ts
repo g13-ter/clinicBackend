@@ -1,4 +1,4 @@
-import type { UserRole } from "../types/roles";
+import { USER_ROLES, type UserRole } from "../types/roles";
 
 /**
  * Single source of truth for RBAC capabilities.
@@ -72,6 +72,7 @@ export const PERMISSIONS = {
   },
   dashboard: {
     view: ["admin", "doctor", "nurse", "staff"] as const satisfies readonly UserRole[],
+    viewSuperAdmin: ["superadmin"] as const satisfies readonly UserRole[],
   },
   systemSettings: {
     manage: ["admin", "superadmin"] as const satisfies readonly UserRole[],
@@ -82,3 +83,19 @@ export const roleHasPermission = (
   role: UserRole,
   allowed: readonly UserRole[]
 ): boolean => allowed.includes(role); 
+
+export const getRolePermissionMatrix = (): Array<{ role: UserRole; capabilities: string[] }> => {
+  const entries = Object.entries(PERMISSIONS).flatMap(([resource, actions]) =>
+    Object.entries(actions).map(([action, roles]) => ({
+      capability: `${resource}.${action}`,
+      roles: roles as readonly UserRole[],
+    })),
+  );
+
+  return USER_ROLES.map((role) => ({
+    role,
+    capabilities: entries
+      .filter((entry) => entry.roles.includes(role))
+      .map((entry) => entry.capability),
+  }));
+};

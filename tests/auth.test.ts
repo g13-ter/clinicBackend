@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import app from "../src/app";
 import User from "../src/models/user.model";
 import bcrypt from "bcryptjs";
+import { CURRENT_TERMS_VERSION } from "../src/config/terms";
 
 dotenv.config();
 
@@ -44,6 +45,34 @@ afterAll(async () => {
 
 
 describe("Auth - Login", () => {
+
+  it("blocks a temporary password until the user changes it", async () => {
+    const email = `TEST_temp_password_${Date.now()}@clinic.com`;
+    const temporaryPassword = "temporary1234";
+    const newPassword = "privatepass1234";
+    const user = await User.create({
+      name: "TEST Temporary Password",
+      email,
+      password: await bcrypt.hash(temporaryPassword, 10),
+      role: "staff",
+      termsAccepted: true,
+      termsVersionAccepted: CURRENT_TERMS_VERSION,
+      mustChangePassword: true,
+    });
+    const agent = request.agent(app);
+    try {
+      const login = await agent.post("/api/auth/login").send({ email, password: temporaryPassword });
+      expect(login.body.data.user.mustChangePassword).toBe(true);
+      const blocked = await agent.get("/api/dashboard/stats");
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.code).toBe("PASSWORD_CHANGE_REQUIRED");
+      const changed = await agent.put("/api/users/me").send({ currentPassword: temporaryPassword, newPassword });
+      expect(changed.status).toBe(200);
+      expect((await User.findById(user._id))?.mustChangePassword).toBe(false);
+    } finally {
+      await User.findByIdAndDelete(user._id);
+    }
+  });
 
   it("logs in successfully with correct email and password", async () => {
 
