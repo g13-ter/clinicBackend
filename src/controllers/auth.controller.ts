@@ -16,18 +16,12 @@ const cookieOptions = (expiresAt?: string): CookieOptions => ({
   ...(expiresAt ? { expires: new Date(expiresAt) } : {}),
 });
 
-// LOGIN USER
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      throw new AppError("Email and password are required", 400);
-    }
-
+    if (!email || !password) throw new AppError("Email and password are required", 400);
     const result = await authService.login(email, password);
     res.cookie(SESSION_COOKIE_NAME, result.token, cookieOptions(result.expiresAt));
-
     res.json({
       success: true,
       message: "Login successful",
@@ -36,13 +30,9 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
         expiresAt: result.expiresAt,
         requiresTermsAcceptance: !result.user.termsAccepted,
       },
-      // Bearer tokens remain available to automated tests and API clients
-      // outside production; browsers use the HttpOnly cookie.
       ...(process.env.NODE_ENV === "production" ? {} : { token: result.token }),
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };
 
 export const logout = (_req: Request, res: Response): void => {
@@ -55,24 +45,17 @@ export const session = (req: Request, res: Response): void => {
     success: true,
     message: "Session active",
     data: {
-      user: req.user,
+      user: { ...req.user, mustChangePassword: req.passwordChangeRequired === true },
       termsAccepted: req.termsAccepted === true,
-      expiresAt:
-        req.user?.exp ? new Date(req.user.exp * 1000).toISOString() : null,
+      mustChangePassword: req.passwordChangeRequired === true,
+      expiresAt: req.user?.exp ? new Date(req.user.exp * 1000).toISOString() : null,
     },
   });
 };
 
-export const acceptTerms = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): Promise<void> => {
+export const acceptTerms = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    if (!req.user) {
-      throw new AppError("Authentication required", 401);
-    }
-
+    if (!req.user) throw new AppError("Authentication required", 401);
     const acceptedAt = new Date();
     let user = await User.findOneAndUpdate(
       {
@@ -83,25 +66,11 @@ export const acceptTerms = async (
           { termsVersionAccepted: { $ne: CURRENT_TERMS_VERSION } },
         ],
       },
-      {
-        $set: {
-          termsAccepted: true,
-          termsAcceptedAt: acceptedAt,
-          termsVersionAccepted: CURRENT_TERMS_VERSION,
-        },
-      },
-      { returnDocument: "after" }
+      { $set: { termsAccepted: true, termsAcceptedAt: acceptedAt, termsVersionAccepted: CURRENT_TERMS_VERSION } },
+      { returnDocument: "after" },
     );
-
-    // Preserve the original timestamp when an accepted request is retried.
-    if (!user) {
-      user = await User.findById(req.user.id);
-    }
-
-    if (!user || !user.isActive) {
-      throw new AppError("Session is no longer valid", 401);
-    }
-
+    if (!user) user = await User.findById(req.user.id);
+    if (!user || !user.isActive) throw new AppError("Session is no longer valid", 401);
     res.status(200).json({
       success: true,
       message: "Terms and Agreement accepted",
@@ -111,7 +80,5 @@ export const acceptTerms = async (
         termsVersion: CURRENT_TERMS_VERSION,
       },
     });
-  } catch (error) {
-    next(error);
-  }
+  } catch (error) { next(error); }
 };

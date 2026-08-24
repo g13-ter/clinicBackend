@@ -10,7 +10,8 @@ export const registerSchema = z.object({
   password: z.string().min(12, "Password must be at least 12 characters"),
   role: z.enum(USER_ROLES, {
     message: "Role must be superadmin, admin, doctor, nurse, or staff"
-  })
+  }),
+  actorPassword: z.string().min(1, "Your current password is required").max(200).optional(),
 });
 
 export const loginSchema = z.object({
@@ -25,12 +26,17 @@ export const updateUserSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
   password: z.string().min(12, "Password must be at least 12 characters").optional(),
-    role: z.enum(USER_ROLES).optional(),
-    // Deactivation uses DELETE so it can enforce self/last-admin safeguards.
-    // PUT may only reactivate an existing account.
-    isActive: z.literal(true).optional(),
+  role: z.enum(USER_ROLES).optional(),
+  // Deactivation uses DELETE so it can enforce self/last-admin safeguards.
+  // PUT may only reactivate an existing account.
+  isActive: z.literal(true).optional(),
   isAvailable: z.boolean().optional(),
-  scheduleNotes: z.string().optional()
+  scheduleNotes: z.string().optional(),
+  actorPassword: z.string().min(1, "Your current password is required").max(200).optional(),
+});
+
+export const privilegedActionSchema = z.object({
+  actorPassword: z.string().min(1, "Your current password is required").max(200).optional(),
 });
 
 

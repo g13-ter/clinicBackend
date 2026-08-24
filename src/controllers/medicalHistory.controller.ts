@@ -72,7 +72,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
           kind: "medication_order",
           title: `Medication requested by ${actor.role}`,
           message: `${studentName}: ${medicationSummary}`,
-          link: `/patients/${patientId}`,
+          link: `/dashboard?view=medications&order=${entry._id}`,
           resourceType: "MedicalHistory",
           resourceId: String(entry._id),
           dedupeKey: `nurse:medication-order:${entry._id}`,

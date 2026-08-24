@@ -19,6 +19,8 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
     delete operationalStats.analyticsPatientType;
     delete operationalStats.analyticsTotalVisits;
     delete operationalStats.analyticsVisitBreakdown;
+    delete operationalStats.bmiRecordedCount;
+    delete operationalStats.bmiBreakdown;
     if (actor.role === "admin" || actor.role === "staff") {
       // Non-clinical dashboards receive only operational workload data, not analytics or inventory data.
       stats.recentCases = [];
@@ -31,6 +33,15 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
       delete operationalStats.recentCases;
     }
     res.status(200).json({ success: true, message: "Dashboard stats retrieved successfully", data: operationalStats });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSuperAdminDashboard = async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const summary = await dashboardService.getSuperAdminSummary();
+    res.status(200).json({ success: true, message: "Super Admin dashboard retrieved successfully", data: summary });
   } catch (error) {
     next(error);
   }

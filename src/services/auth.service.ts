@@ -1,4 +1,4 @@
-import User from "../models/user.model";
+import User, { type IUser } from "../models/user.model";
 import bcrypt from "bcryptjs";
 import { AppError } from "../middleware/error.middleware";
 import jwt, { SignOptions } from "jsonwebtoken";
@@ -16,40 +16,31 @@ export interface LoginResult {
     email: string;
     role: UserRole;
     termsAccepted: boolean;
+    mustChangePassword: boolean;
   };
 }
 
 export class AuthService {
   async login(email: string, password: string): Promise<LoginResult> {
     const user = await User.findOne({ email: email.trim().toLowerCase() })
-      .select("+sessionVersion");
-    if (!user || !user.isActive) {
+      .select("+password +sessionVersion");
+    if (!user || !user.isActive) throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
+    if (!(await bcrypt.compare(password, user.password))) {
       throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
     }
+    return this.createSession(user);
+  }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      throw new AppError(INVALID_CREDENTIALS_MESSAGE, 401);
-    }
-
+  createSession(user: IUser): LoginResult {
     const token = jwt.sign(
-      {
-        id: String(user._id),
-        role: user.role,
-        sv: user.sessionVersion,
-      },
+      { id: String(user._id), role: user.role, sv: user.sessionVersion, mp: user.mustChangePassword === true },
       process.env.JWT_SECRET as string,
-      {
-        expiresIn: process.env.JWT_EXPIRE || "1d",
-      } as SignOptions
+      { expiresIn: process.env.JWT_EXPIRE || "1d" } as SignOptions,
     );
-
     const decoded = jwt.decode(token);
-    const expiresAt =
-      decoded && typeof decoded === "object" && typeof decoded.exp === "number"
-        ? new Date(decoded.exp * 1000).toISOString()
-        : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-
+    const expiresAt = decoded && typeof decoded === "object" && typeof decoded.exp === "number"
+      ? new Date(decoded.exp * 1000).toISOString()
+      : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     return {
       token,
       expiresAt,
@@ -58,8 +49,8 @@ export class AuthService {
         name: user.name,
         email: user.email,
         role: user.role,
-        termsAccepted:
-          user.termsAccepted === true && user.termsVersionAccepted === CURRENT_TERMS_VERSION,
+        termsAccepted: user.termsAccepted === true && user.termsVersionAccepted === CURRENT_TERMS_VERSION,
+        mustChangePassword: user.mustChangePassword === true,
       },
     };
   }

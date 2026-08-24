@@ -84,12 +84,15 @@ describe("Clinic Visits - Create (clinical roles)", () => {
         notes: "Advised to rest",
         bloodPressure: "120/80",
         temperature: 37.8,
-        pulseRate: 88
+        pulseRate: 88,
+        heightCm: 170,
+        weightKg: 65,
       });
 
     expect(res.status).toBe(201);
     expect(res.body.data.bloodPressure).toBe("120/80");
     expect(res.body.data.temperature).toBe(37.8);
+    expect(res.body.data.bmi).toBe(22.5);
 
     createdVisitId = res.body.data._id;
 

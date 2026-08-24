@@ -274,6 +274,7 @@ describe("Medical History - Create", () => {
         receivedBy: nurseId,
       },
     ]);
+    if (!earlierBatch || !laterBatch) throw new Error("Expected FEFO test batches to be created");
     const visitId = String(visit._id);
     const medicineId = String(medicine._id);
     createdVisitIds.push(visitId);

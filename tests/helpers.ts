@@ -38,8 +38,10 @@ export const createTestUserAndLogin = async (
       password: TEST_PASSWORD
     });
 
+  const token = loginRes.body.token as string | undefined;
+  if (!token) throw new Error(`Test login failed for ${role}`);
   return {
-    token: loginRes.body.token,
+    token,
     userId: (user._id as any).toString(),
     email
   };

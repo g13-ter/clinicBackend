@@ -6,6 +6,7 @@ export const jwtPayloadSchema = z.object({
   id: z.string().min(1),
   role: z.enum(USER_ROLES),
   sv: z.number().int().nonnegative(),
+  mp: z.boolean().optional().default(false),
   iat: z.number().optional(),
   exp: z.number().optional(),
 });

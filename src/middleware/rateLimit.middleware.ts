@@ -64,6 +64,19 @@ export const loginIpLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const privilegedActionLimiter = rateLimit({
+  ...productionStore("privileged-action:"),
+  windowMs: 5 * 60 * 1000,
+  limit: 10,
+  keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ""),
+  skipSuccessfulRequests: true,
+  message: {
+    message: "Too many failed administrative actions. Please try again in 5 minutes.",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 
 // Allows normal staff traffic and background polling from shared IPs.
 export const generalLimiter = rateLimit({

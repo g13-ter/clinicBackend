@@ -8,6 +8,7 @@ export interface IUser extends Document {
   role: UserRole;
   isActive: boolean;
   sessionVersion: number;
+  mustChangePassword: boolean;
   termsAccepted: boolean;
   termsAcceptedAt?: Date | null;
   termsVersionAccepted?: string | null;
@@ -35,6 +36,7 @@ const UserSchema = new Schema<IUser>(
     password: {
       type: String,
       required: true,
+      select: false,
     },
 
     role: {
@@ -45,6 +47,7 @@ const UserSchema = new Schema<IUser>(
 
     isActive: { type: Boolean, default: true, index: true },
     sessionVersion: { type: Number, default: 0, select: false },
+    mustChangePassword: { type: Boolean, default: false },
     termsAccepted: { type: Boolean, default: false },
     termsAcceptedAt: { type: Date, default: null },
     termsVersionAccepted: { type: String, default: null },

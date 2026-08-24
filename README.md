@@ -39,65 +39,122 @@ preview URL that also needs to be added there before login will work from it.
 
 ---
 
-## Getting Started
+## Run locally
 
-### 1. Configure environment variables
+### Prerequisites
 
-Copy the example file and fill in real values:
+- Node.js 22 or newer
+- npm
+- A MongoDB database. MongoDB Atlas is the easiest option because it supports
+  transactions. A local replica set also works.
+
+If you use a normal standalone MongoDB server for development, set
+`MONGO_TRANSACTIONS_ENABLED=false`. Do not disable transactions in production.
+
+### 1. Install dependencies
+
+From the `backend` directory:
+
+```bash
+npm ci
+```
+
+Use `npm install` instead when you intentionally want to update dependencies or
+the lockfile.
+
+### 2. Create `backend/.env`
+
+macOS/Linux:
 
 ```bash
 cp .env.example .env
 ```
 
-Required:
-- `MONGO_URI` — your MongoDB connection string. Make sure it includes a database name (e.g. `.../clinicDB?...`) — without one, MongoDB silently connects to a database called `test`, which is easy to miss.
-- `JWT_SECRET` — a long, random string used to sign login tokens
+Windows PowerShell:
 
-Optional (have safe defaults if omitted):
-- `JWT_EXPIRE` — how long a login token stays valid (default: `1d`)
-- `PORT` — local server port (default: `5000`; most hosts like Railway set this automatically)
-- `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` — used only by the admin-seeding script below (default: `admin@clinic.com` / `admin123`, fine for local dev only — set real values before seeding a production database)
-
-The server checks for `MONGO_URI` and `JWT_SECRET` on startup (and before the test suite runs) and refuses to continue with a clear error message if either is missing.
-
-### 2. Install dependencies
-
-```bash
-npm install
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 3. Create the first admin account
+At minimum, set these values:
 
-There is no public registration route — accounts are created by an existing admin only (`POST /api/users`). To bootstrap the very first one:
+```dotenv
+MONGO_URI=mongodb://127.0.0.1:27017/school_clinic
+JWT_SECRET=replace-this-with-at-least-32-random-characters
+CLIENT_ORIGIN=http://localhost:5173
+PORT=5000
+
+# Keep true for Atlas or a replica set. Use false only for standalone local MongoDB.
+MONGO_TRANSACTIONS_ENABLED=false
+```
+
+Generate a secure JWT secret with `npm run generate-secret`, then paste the
+generated value into `JWT_SECRET`. The server refuses to start if `MONGO_URI` is
+missing or `JWT_SECRET` is shorter than 32 characters. Email, webhook, backup,
+report-header, and background-worker variables in `.env.example` are optional
+for normal local development.
+
+For MongoDB Atlas, replace `MONGO_URI` with the connection string from Atlas,
+include a database name such as `/school_clinic`, allow your current IP address,
+and set `MONGO_TRANSACTIONS_ENABLED=true`.
+
+### 3. Create the first account
+
+There is no public sign-up page. Seed the initial administrator before trying
+to log in:
 
 ```bash
 npm run seed-admin
 ```
 
-This creates `admin@clinic.com` / `admin123` directly in your database (or your configured `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`). **Change this password once you're logged in.** The script checks for an existing admin with that email first and does nothing if one already exists — safe to re-run if you ever lose access.
+The local defaults are:
 
-### 4. Run the server
+- Email: `admin@clinic.com`
+- Password: `admin123`
+- Role: `admin`
+
+Change these before seeding with `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, and
+optionally `SEED_ADMIN_ROLE=superadmin` in `.env`. The command does nothing when
+an account with that email already exists. Change the default password after
+your first login.
+
+### 4. Start the API
 
 ```bash
-npm run dev      # development, auto-restarts on file changes
+npm run dev
 ```
 
-You should see:
-Server running on Port 5000
-MongoDB Connected
+Nodemon restarts the API when source files change. Once MongoDB connects, use:
 
-For production:
+- API: <http://localhost:5000/api>
+- Readiness check: <http://localhost:5000/api/health/ready>
+- Swagger UI: <http://localhost:5000/api-docs>
+
+Keep this terminal running while using the frontend. The frontend README
+explains how to start the web app in a second terminal. From the repository
+root, `npm run dev` can also start both applications after their dependencies
+and the backend environment have been prepared.
+
+### Production-style local run
+
 ```bash
-npm run build    # compiles TypeScript (src/) to JavaScript (dist/)
-npm start        # runs the compiled output (dist/server.js)
+npm run build
+npm start
 ```
 
-### 5. View the interactive API docs
+This compiles `src/` to `dist/` and runs the compiled server.
 
-With the server running, open:
-http://localhost:5000/api-docs
+### Common startup problems
 
-This is a live Swagger UI, generated directly from this project's own Zod validation schemas — the docs literally cannot drift out of sync with real request validation, because they're built from the same source. Click **Authorize**, paste a JWT obtained from `POST /auth/login`, and you can try every real endpoint directly from the browser.
+- **Missing environment variable:** confirm this file is named
+  `backend/.env`, not `.env.example` or `.env.txt`.
+- **MongoDB connection timeout:** start your local MongoDB service, or check
+  the Atlas username, password, IP allowlist, and database URL.
+- **Transactions require a replica set:** use Atlas/a local replica set, or set
+  `MONGO_TRANSACTIONS_ENABLED=false` for standalone local development.
+- **Port 5000 is already in use:** stop the other process or change `PORT` in
+  `.env`; if you change it, also update the frontend proxy in
+  `frontend/vite.config.ts`.
 
 ---
 
@@ -108,8 +165,11 @@ This is a live Swagger UI, generated directly from this project's own Zod valida
 | `npm run dev` | Runs the server in development mode with auto-restart (nodemon) |
 | `npm run build` | Compiles TypeScript (`src/`) to JavaScript (`dist/`) |
 | `npm start` | Runs the compiled server (`dist/server.js`) — used in production |
-| `npm test` | Runs the full Jest test suite against a real database |
+| `npm run typecheck` | Checks TypeScript without writing build output |
+| `npm test` | Runs Jest against the separate database in `MONGO_TEST_URI` |
+| `npm run check` | Runs type-checking, tests, and a production build |
 | `npm run seed-admin` | Creates the first admin account |
+| `npm run generate-secret` | Prints a random 32-byte secret for `JWT_SECRET` |
 
 See also: [Architecture & security guide](../docs/ARCHITECTURE.md) (RBAC matrix, health checks, deployment, CI).
 
@@ -129,14 +189,20 @@ Public endpoint (no auth). Returns `200` when MongoDB is connected, `503` when d
 
 There is no public sign-up route. New staff accounts (any role) are created by an existing admin through `POST /api/users`. This prevents anyone from registering themselves as `admin` directly.
 
-There are 4 roles:
+There are 5 roles:
 
 | Role | Summary |
 |---|---|
+| `superadmin` | Manages protected administrative accounts and role permissions. |
 | `admin` | Manages staff accounts. Updates/archives patient basic info. Views audit logs and generates board reports. Cannot touch medical records directly. |
 | `doctor` | Reviews nurse-recorded triage, records diagnosis and treatment, issues prescriptions, and generates consultation certificates. |
 | `nurse` | Checks in students, records vitals and nursing assessments, and manages medicine inventory and appointments. Read-only on physician medical history. |
 | `staff` | Manages appointments. Sees a basic (non-medical) patient list only. |
+
+Sensitive Super Admin operations use step-up verification. Creating or changing
+Admin or Super Admin accounts, resetting passwords, and activating or deactivating
+privileged accounts require the acting Super Admin's current password. The
+password is validated server-side and is never stored in an audit record.
 
 ---
 
@@ -215,9 +281,15 @@ Every **create, update, and delete** across all six resources (patients, visits,
 
 This is a different, separate system from the `createdBy`/`updatedBy` fields you'll see on individual records — those only ever reflect the most recent change to that record. The audit log keeps the full history forever, even after a record has been edited many times since.
 
-- Audit writes are fire-and-forget: they run in the background and never slow down or fail the actual request, even if the log write itself fails (which gets reported through the normal app logger instead)
+- User-account mutations and their success audit record run in the same MongoDB transaction when transactions are enabled, so they commit or roll back together. Production requires transactions.
+- Rejected account creation, update, password-reset, activation, and deactivation attempts are recorded for security review.
+- Other resource audit writes remain best-effort and report failures through the normal app logger.
 - Passwords (hashed or not) are explicitly stripped before any User action is logged
-- Viewable via `GET /api/audit-logs` (**admin only**), filterable by `resource`, `action`, `resourceId`, or `performedBy` (a user ID), with the same pagination as other list endpoints
+- Viewable via `GET /api/audit-logs` by Admin and Super Admin, filterable by `resource`, `action`, `resourceId`, or `performedBy` (a user ID), with the same pagination as other list endpoints. Regular Admins cannot see protected Super Admin activity.
+
+### Backup verification
+
+`npm run backup:create` creates an authenticated, encrypted MongoDB archive. Run `npm run backup:verify -- <backup-file.scb>` after every scheduled backup; verification authenticates and decrypts the file, fully decompresses the MongoDB archive, and rejects an empty payload. Schedule a real restore drill into an isolated database before production launch.
 
 ---
 
@@ -278,14 +350,21 @@ Set `LOG_LEVEL=debug` locally when troubleshooting, then return it to `info` in 
 npm test
 ```
 
-Tests use Jest + Supertest and run against your real database (the same `MONGO_URI` from `.env` — see the note below), one test file at a time rather than in parallel, since they share state. Each test file creates its own throwaway users/patients/records (clearly prefixed with `TEST_` or `TEST-`) and cleans them up afterward.
+Tests use Jest + Supertest and run one test file at a time because they share
+database state. Set `MONGO_TEST_URI` in `.env` to a dedicated test database whose
+name contains `test`, `tests`, or `ci`. The test runner deliberately refuses to
+use `MONGO_URI`, which protects development and production data.
+
+The transaction tests need a replica set. An Atlas test database or an
+ephemeral local replica set is recommended. Each test creates temporary records
+with recognizable test prefixes and cleans them up afterward.
 
 Coverage includes:
 - Full CRUD + role-based access control for every resource
 - Audit log correctness — real actions produce real entries with accurate before/after diffs, filtering works, and passwords are never present in any logged snapshot
 - Report generation — access control, date-range validation, binary file integrity (.docx files are ZIP archives under the hood, and the tests confirm the response actually starts with a valid ZIP signature), and focused unit tests on the underlying statistics logic (gender counting, complaint grouping, archived-record exclusion, low-stock detection)
 
-**Note on the database:** these tests write to and delete from whatever database `MONGO_URI` points to. Since this project uses the same database for development and testing, running tests will create and remove test records in your real data. If you want to isolate this, point a separate `MONGO_URI` (e.g. a second database in the same Atlas cluster) at test runs instead.
+**Never point `MONGO_TEST_URI` at a database containing real clinic data.**
 
 ---
 
@@ -313,7 +392,7 @@ pagination.ts     shared page/limit/skip parsing and metadata building
 regex.ts          escapes user search input before it's used in a $regex query
 logger.ts         Winston logger (structured, redacted, and Render-friendly)
 validateEnv.ts    fails fast at startup if required env vars are missing
-auditLog.ts       fire-and-forget helper that writes one audit log entry
+auditLog.ts       sanitized audit writer with optional transaction enforcement
 reportDocx.ts     builds the .docx clinic summary report
 tests/
 helpers.ts          shared test utilities (create a test user of any role + log in)
@@ -331,10 +410,10 @@ Request -> server.ts (matches URL prefix)
 -> rate limiter (login route only, or the general limiter for everything)
 -> protect middleware (checks the JWT is valid, attaches user to req)
 -> allowRoles middleware (checks the user's role is allowed for this route)
--> validateBody middleware (validates + sanitizes the request body, POST/PUT only)
+-> validateBody middleware (validates and sanitizes request bodies where required)
 -> controller function (reads req, calls a service, builds the response)
 -> service function (the actual business logic + MongoDB query)
--> (in parallel, fire-and-forget) audit log entry written, if applicable
+-> audit log entry written (transactional for User mutations; best-effort for other resources)
 -> response sent back (or forwarded to the central error handler if anything threw)
 
 ---

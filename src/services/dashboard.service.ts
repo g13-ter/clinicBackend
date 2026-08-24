@@ -11,6 +11,26 @@ import { clinicDateKey, clinicDayRange } from "../utils/clinicTime";
 
 export type AnalyticsPatientType = "all" | "student" | "teacher" | "staff";
 
+export interface SuperAdminDashboardSummary {
+  accounts: {
+    total: number;
+    active: number;
+    inactive: number;
+    administrators: number;
+    inactiveAdministrators: number;
+  };
+  failedPrivilegedActions: number;
+  recentPrivilegedActivity: Array<{
+    _id: unknown;
+    action: string;
+    resource: string;
+    resourceId: string;
+    performedBy: unknown;
+    actorSnapshot?: { userId: string; name: string; email: string; role: string };
+    createdAt: Date;
+  }>;
+}
+
 const todayRange = () => clinicDayRange(clinicDateKey());
 
 const startOfMonth = (): Date => {
@@ -48,6 +68,8 @@ export interface DashboardStats {
   analyticsPatientType: AnalyticsPatientType;
   analyticsTotalVisits: number;
   analyticsVisitBreakdown: { student: number; teacher: number; staff: number };
+  bmiRecordedCount: number;
+  bmiBreakdown: { underweight: number; normalWeight: number; overweight: number; obese: number };
   recentCases: {
     id: string;
     date: Date;
@@ -91,6 +113,39 @@ const titleCase = (value: string): string =>
   value.replace(/\b\w/g, (character) => character.toUpperCase());
 
 export class DashboardService {
+  async getSuperAdminSummary(): Promise<SuperAdminDashboardSummary> {
+    const recentFailureWindow = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const privilegedResources = ["User", "SystemSettings"];
+    const [total, active, administrators, inactiveAdministrators, failedPrivilegedActions, recentPrivilegedActivity] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ isActive: { $ne: false } }),
+      User.countDocuments({ role: { $in: ["admin", "superadmin"] } }),
+      User.countDocuments({ role: { $in: ["admin", "superadmin"] }, isActive: false }),
+      AuditLog.countDocuments({
+        resource: { $in: privilegedResources },
+        "changes.after.successful": false,
+        createdAt: { $gte: recentFailureWindow },
+      }),
+      AuditLog.find({ resource: { $in: privilegedResources }, action: { $ne: "view" } })
+        .select("action resource resourceId performedBy actorSnapshot createdAt")
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .lean(),
+    ]);
+
+    return {
+      accounts: {
+        total,
+        active,
+        inactive: total - active,
+        administrators,
+        inactiveAdministrators,
+      },
+      failedPrivilegedActions,
+      recentPrivilegedActivity,
+    };
+  }
+
   async getStats(doctorId?: string, analyticsPatientType: AnalyticsPatientType = "all"): Promise<DashboardStats> {
     const { start: todayStart, endExclusive: todayEnd } = todayRange();
     const doctorScope = doctorId ? { doctorId } : {};
@@ -124,6 +179,7 @@ export class DashboardService {
       commonComplaintDocs,
       monthlyVisitDocs,
       analyticsBreakdownDocs,
+      bmiBreakdownDocs,
       recentCaseDocs,
       recentActivityDocs,
     ] = await Promise.all([
@@ -200,6 +256,27 @@ export class DashboardService {
         { $unwind: { path: "$patient", preserveNullAndEmptyArrays: true } },
         { $group: { _id: { $ifNull: ["$patient.patientType", "student"] }, visits: { $sum: 1 } } },
       ]),
+      ClinicVisit.aggregate<{ _id: "underweight" | "normalWeight" | "overweight" | "obese"; count: number }>([
+        { $match: { ...analyticsRange, ...analyticsPatientFilter, bmi: { $type: "number" } } },
+        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
+        { $unwind: "$patient" },
+        { $match: { "patient.age": { $gte: 18 } } },
+        {
+          $project: {
+            category: {
+              $switch: {
+                branches: [
+                  { case: { $lt: ["$bmi", 18.5] }, then: "underweight" },
+                  { case: { $lt: ["$bmi", 25] }, then: "normalWeight" },
+                  { case: { $lt: ["$bmi", 30] }, then: "overweight" },
+                ],
+                default: "obese",
+              },
+            },
+          },
+        },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+      ]),
       ClinicVisit.find({ ...analyticsRange, ...analyticsPatientFilter })
         .populate("patientId", "patientType studentId firstName lastName")
         .populate("assignedDoctorId", "name role")
@@ -235,6 +312,9 @@ export class DashboardService {
     const analyticsTotalVisits = patientType
       ? analyticsVisitBreakdown[patientType]
       : analyticsVisitBreakdown.student + analyticsVisitBreakdown.teacher + analyticsVisitBreakdown.staff;
+    const bmiBreakdown = { underweight: 0, normalWeight: 0, overweight: 0, obese: 0 };
+    for (const entry of bmiBreakdownDocs) bmiBreakdown[entry._id] = entry.count;
+    const bmiRecordedCount = Object.values(bmiBreakdown).reduce((sum, count) => sum + count, 0);
 
     type PopulatedUser = { _id: unknown; name: string; role: string };
     type PopulatedPatient = { _id: unknown; patientType?: "student" | "teacher" | "staff"; studentId: string; firstName: string; lastName: string };
@@ -330,6 +410,8 @@ export class DashboardService {
       analyticsPatientType,
       analyticsTotalVisits,
       analyticsVisitBreakdown,
+      bmiRecordedCount,
+      bmiBreakdown,
       recentCases,
       recentActivity: recentActivityDocs.map((log) => ({
         action: log.action,
