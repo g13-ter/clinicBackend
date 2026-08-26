@@ -141,6 +141,9 @@ const ClinicVisitSchema = new Schema<IClinicVisit>(
   }
 );
 
+// Supports bounded analytics scans without reading clinic visits outside the selected period.
+ClinicVisitSchema.index({ isActive: 1, visitDate: 1 });
+
 const ClinicVisit = mongoose.model<IClinicVisit>("ClinicVisit", ClinicVisitSchema);
 
 export default ClinicVisit;

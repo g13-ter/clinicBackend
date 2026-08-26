@@ -10,6 +10,15 @@ import { computeStatus } from "./medicine.service";
 import { clinicDateKey, clinicDayRange } from "../utils/clinicTime";
 
 export type AnalyticsPatientType = "all" | "student" | "teacher" | "staff";
+export type AnalyticsPeriod = "year" | "month" | "week" | "day" | "custom";
+
+export interface AnalyticsRange {
+  period: AnalyticsPeriod;
+  start: Date;
+  endExclusive: Date;
+  startKey: string;
+  endKey: string;
+}
 
 export interface SuperAdminDashboardSummary {
   accounts: {
@@ -112,6 +121,39 @@ const monthKeys = (): { key: string; month: string }[] => {
 const titleCase = (value: string): string =>
   value.replace(/\b\w/g, (character) => character.toUpperCase());
 
+const dateKeyToUtc = (key: string): Date => new Date(`${key}T00:00:00.000Z`);
+const utcDateKey = (date: Date): string => date.toISOString().slice(0, 10);
+
+const analyticsSeries = (range: AnalyticsRange): { key: string; month: string }[] => {
+  if (range.period === "day") {
+    return Array.from({ length: 24 }, (_, hour) => ({
+      key: `${String(hour).padStart(2, "0")}:00`,
+      month: `${String(hour).padStart(2, "0")}:00`,
+    }));
+  }
+  if (range.period === "year") {
+    const year = Number(range.startKey.slice(0, 4));
+    return Array.from({ length: 12 }, (_, month) => {
+      const key = `${year}-${String(month + 1).padStart(2, "0")}`;
+      return {
+        key,
+        month: new Intl.DateTimeFormat("en", { month: "short" }).format(new Date(Date.UTC(year, month, 1))),
+      };
+    });
+  }
+
+  const result: { key: string; month: string }[] = [];
+  const end = dateKeyToUtc(range.endKey);
+  for (let date = dateKeyToUtc(range.startKey); date <= end; date = new Date(date.getTime() + 86_400_000)) {
+    const key = utcDateKey(date);
+    result.push({
+      key,
+      month: new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(date),
+    });
+  }
+  return result;
+};
+
 export class DashboardService {
   async getSuperAdminSummary(): Promise<SuperAdminDashboardSummary> {
     const recentFailureWindow = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -143,6 +185,82 @@ export class DashboardService {
       },
       failedPrivilegedActions,
       recentPrivilegedActivity,
+    };
+  }
+
+  async getAnalytics(
+    analyticsPatientType: AnalyticsPatientType,
+    range: AnalyticsRange,
+  ): Promise<Pick<DashboardStats,
+    "commonComplaints" | "monthlyVisits" | "analyticsPatientType" |
+    "analyticsTotalVisits" | "analyticsVisitBreakdown" | "bmiRecordedCount" | "bmiBreakdown"
+  >> {
+    const patientType = analyticsPatientType === "all" ? undefined : analyticsPatientType;
+    const patientTypeQuery: Record<string, unknown> = patientType === "student"
+      ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
+      : patientType ? { patientType } : {};
+    const analyticsPatientIds = patientType
+      ? await Patient.find(patientTypeQuery).distinct("_id")
+      : undefined;
+    const patientFilter = analyticsPatientIds ? { patientId: { $in: analyticsPatientIds } } : {};
+    const match = {
+      visitDate: { $gte: range.start, $lt: range.endExclusive },
+      isActive: true,
+      ...patientFilter,
+    };
+    const seriesFormat = range.period === "year"
+      ? "%Y-%m"
+      : range.period === "day" ? "%H:00" : "%Y-%m-%d";
+
+    const [complaintDocs, seriesDocs, breakdownDocs, bmiDocs] = await Promise.all([
+      ClinicVisit.aggregate<{ _id: string; count: number }>([
+        { $match: { ...match, complaint: { $type: "string", $ne: "" } } },
+        { $group: { _id: { $toLower: { $trim: { input: "$complaint" } } }, count: { $sum: 1 } } },
+        { $sort: { count: -1, _id: 1 } },
+        { $limit: 5 },
+      ]),
+      ClinicVisit.aggregate<{ _id: string; visits: number }>([
+        { $match: match },
+        { $group: { _id: { $dateToString: { date: "$visitDate", format: seriesFormat, timezone: "Asia/Manila" } }, visits: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]),
+      ClinicVisit.aggregate<{ _id: "student" | "teacher" | "staff"; visits: number }>([
+        { $match: match },
+        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
+        { $unwind: { path: "$patient", preserveNullAndEmptyArrays: true } },
+        { $group: { _id: { $ifNull: ["$patient.patientType", "student"] }, visits: { $sum: 1 } } },
+      ]),
+      ClinicVisit.aggregate<{ _id: "underweight" | "normalWeight" | "overweight" | "obese"; count: number }>([
+        { $match: { ...match, bmi: { $type: "number" } } },
+        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
+        { $unwind: "$patient" },
+        { $match: { "patient.age": { $gte: 18 } } },
+        { $project: { category: { $switch: { branches: [
+          { case: { $lt: ["$bmi", 18.5] }, then: "underweight" },
+          { case: { $lt: ["$bmi", 25] }, then: "normalWeight" },
+          { case: { $lt: ["$bmi", 30] }, then: "overweight" },
+        ], default: "obese" } } } },
+        { $group: { _id: "$category", count: { $sum: 1 } } },
+      ]),
+    ]);
+
+    const analyticsVisitBreakdown = { student: 0, teacher: 0, staff: 0 };
+    for (const entry of breakdownDocs) analyticsVisitBreakdown[entry._id] = entry.visits;
+    const analyticsTotalVisits = patientType
+      ? analyticsVisitBreakdown[patientType]
+      : Object.values(analyticsVisitBreakdown).reduce((sum, count) => sum + count, 0);
+    const bmiBreakdown = { underweight: 0, normalWeight: 0, overweight: 0, obese: 0 };
+    for (const entry of bmiDocs) bmiBreakdown[entry._id] = entry.count;
+    const seriesCounts = new Map(seriesDocs.map((entry) => [entry._id, entry.visits]));
+
+    return {
+      commonComplaints: complaintDocs.map((entry) => ({ label: titleCase(entry._id), count: entry.count })),
+      monthlyVisits: analyticsSeries(range).map((entry) => ({ ...entry, visits: seriesCounts.get(entry.key) ?? 0 })),
+      analyticsPatientType,
+      analyticsTotalVisits,
+      analyticsVisitBreakdown,
+      bmiRecordedCount: Object.values(bmiBreakdown).reduce((sum, count) => sum + count, 0),
+      bmiBreakdown,
     };
   }
 

@@ -415,14 +415,28 @@ const timeSchema = z.string().regex(
   "Time must use the 24-hour HH:mm format",
 );
 
-export const updateSystemSettingsSchema = z.object({
-  schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
+const clinicScheduleDaySchema = z.object({
+  day: z.enum(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]),
+  openTime: timeSchema,
+  closeTime: timeSchema,
+});
+
+const clinicProfileFields = {
+  clinicName: z.string().trim().min(2).max(100),
+  buildingLocation: z.string().trim().min(2).max(120),
+  floorRoom: z.string().trim().min(2).max(120),
+  operatingDays: z.string().trim().min(2).max(100),
   clinicOpenTime: timeSchema,
   clinicCloseTime: timeSchema,
-  emailNotificationsEnabled: z.boolean(),
-  appointmentRemindersEnabled: z.boolean(),
-  stockAlertsEnabled: z.boolean(),
-}).superRefine((value, ctx) => {
+  weeklySchedule: z.array(clinicScheduleDaySchema).min(1).max(7).optional(),
+  phoneNumber: z.string().trim().min(5).max(40),
+  emailAddress: z.string().trim().email().max(160),
+};
+
+const validateOperatingHours = (
+  value: { clinicOpenTime: string; clinicCloseTime: string; weeklySchedule?: Array<{ day: string; openTime: string; closeTime: string }> | undefined },
+  ctx: z.RefinementCtx,
+) => {
   if (value.clinicCloseTime <= value.clinicOpenTime) {
     ctx.addIssue({
       code: "custom",
@@ -430,4 +444,32 @@ export const updateSystemSettingsSchema = z.object({
       path: ["clinicCloseTime"],
     });
   }
-});
+  const days = new Set<string>();
+  value.weeklySchedule?.forEach((entry, index) => {
+    if (days.has(entry.day)) {
+      ctx.addIssue({ code: "custom", message: "Each operating day can only appear once", path: ["weeklySchedule", index, "day"] });
+    }
+    days.add(entry.day);
+    if (entry.closeTime <= entry.openTime) {
+      ctx.addIssue({ code: "custom", message: "Closing time must be later than opening time", path: ["weeklySchedule", index, "closeTime"] });
+    }
+  });
+};
+
+export const updateSystemSettingsSchema = z.object({
+  schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
+  clinicName: clinicProfileFields.clinicName.optional(),
+  buildingLocation: clinicProfileFields.buildingLocation.optional(),
+  floorRoom: clinicProfileFields.floorRoom.optional(),
+  operatingDays: clinicProfileFields.operatingDays.optional(),
+  clinicOpenTime: clinicProfileFields.clinicOpenTime,
+  clinicCloseTime: clinicProfileFields.clinicCloseTime,
+  weeklySchedule: clinicProfileFields.weeklySchedule,
+  phoneNumber: clinicProfileFields.phoneNumber.optional(),
+  emailAddress: clinicProfileFields.emailAddress.optional(),
+  emailNotificationsEnabled: z.boolean(),
+  appointmentRemindersEnabled: z.boolean(),
+  stockAlertsEnabled: z.boolean(),
+}).superRefine(validateOperatingHours);
+
+export const clinicProfileSchema = z.object(clinicProfileFields).strict().superRefine(validateOperatingHours);
