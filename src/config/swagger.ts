@@ -163,6 +163,7 @@ const paths: ZodOpenApiPathsObject = {
           search: z.string().optional().meta({ description: "Matches name, student/employee ID, department, or position" }),
           patientType: z.enum(["student", "teacher", "staff"]).optional(),
           includeInactive: z.enum(["true", "false"]).optional(),
+          sortOrder: z.enum(["newest", "oldest"]).optional(),
         }),
       },
       responses: standardResponses(paginatedResponse()),
@@ -214,6 +215,13 @@ const paths: ZodOpenApiPathsObject = {
         }),
       },
       responses: standardResponses(paginatedResponse()),
+    },
+  },
+  "/visits/patient/{patientId}/latest-vitals": {
+    get: {
+      tags: ["Clinic Visits"], summary: "Get the latest recorded patient height and weight (doctor/nurse only)", security: bearerAuth,
+      requestParams: { path: z.object({ patientId: z.string() }) },
+      responses: standardResponses(successResponse()),
     },
   },
   "/visits/{id}": {

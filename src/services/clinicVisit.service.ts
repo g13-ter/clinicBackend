@@ -75,6 +75,40 @@ export class ClinicVisitService {
     return { visits, total };
   }
 
+  async getLatestRecordedVitals(
+    patientId: string,
+  ): Promise<{
+    heightCm?: number;
+    heightRecordedAt?: Date;
+    weightKg?: number;
+    weightRecordedAt?: Date;
+  } | null> {
+    if (!Types.ObjectId.isValid(patientId)) {
+      throw new AppError("Patient ID is invalid", 400);
+    }
+
+    const [heightVisit, weightVisit] = await Promise.all([
+      ClinicVisit.findOne({ patientId, isActive: true, heightCm: { $gte: 30 } })
+        .select("heightCm visitDate")
+        .sort({ visitDate: -1, _id: -1 })
+        .lean(),
+      ClinicVisit.findOne({ patientId, isActive: true, weightKg: { $gte: 1 } })
+        .select("weightKg visitDate")
+        .sort({ visitDate: -1, _id: -1 })
+        .lean(),
+    ]);
+
+    if (heightVisit?.heightCm == null && weightVisit?.weightKg == null) return null;
+    return {
+      ...(heightVisit?.heightCm == null
+        ? {}
+        : { heightCm: heightVisit.heightCm, heightRecordedAt: heightVisit.visitDate }),
+      ...(weightVisit?.weightKg == null
+        ? {}
+        : { weightKg: weightVisit.weightKg, weightRecordedAt: weightVisit.visitDate }),
+    };
+  }
+
   async getVisitById(id: string, assignedDoctorId?: string): Promise<IClinicVisit> {
     const visit = await ClinicVisit.findById(id)
       .populate("patientId")

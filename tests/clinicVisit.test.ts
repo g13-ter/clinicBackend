@@ -155,6 +155,25 @@ describe("Clinic Visits - Create (clinical roles)", () => {
 
 describe("Clinic Visits - View permissions", () => {
 
+  it("returns the latest recorded height and weight for editable triage prefilling", async () => {
+    const res = await request(app)
+      .get(`/api/visits/patient/${testPatientId}/latest-vitals`)
+      .set("Authorization", `Bearer ${nurseToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data).toMatchObject({ heightCm: 170, weightKg: 65 });
+    expect(res.body.data.heightRecordedAt).toEqual(expect.any(String));
+    expect(res.body.data.weightRecordedAt).toEqual(expect.any(String));
+  });
+
+  it("keeps latest recorded height and weight unavailable to administrators", async () => {
+    const res = await request(app)
+      .get(`/api/visits/patient/${testPatientId}/latest-vitals`)
+      .set("Authorization", `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(403);
+  });
+
   it("does not expose an unassigned visit through doctor patient history", async () => {
 
     const res = await request(app)

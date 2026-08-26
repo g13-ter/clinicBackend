@@ -42,8 +42,14 @@ export const privilegedActionSchema = z.object({
 
 // ===== PATIENT =====
 
+const contactNumberSchema = z.string()
+  .min(7, "Contact number must contain at least 7 digits")
+  .max(15, "Contact number must contain at most 15 digits")
+  .regex(/^\d+$/, "Contact number must contain numbers only");
+
 const patientPayloadSchema = z.object({
   patientType: z.enum(["student", "teacher", "staff"]).default("student"),
+  educationLevel: z.enum(["elementary", "junior_high", "senior_high", "college"]).optional(),
   studentId: z.string().min(1).optional(),
   employeeId: z.string().min(1).optional(),
   firstName: z.string().min(1, "First name is required"),
@@ -51,18 +57,19 @@ const patientPayloadSchema = z.object({
   age: z.number().int().min(1).max(100, "Age must be realistic"),
   gender: z.enum(["Male", "Female"]),
   course: z.string().min(1).optional(),
-  yearLevel: z.number().int().min(1).max(10).optional(),
+  yearLevel: z.number().int().min(1).max(12).optional(),
+  programDurationYears: z.number().int().min(1).max(10).optional(),
   department: z.string().trim().min(1).max(200).optional(),
   position: z.string().trim().min(1).max(200).optional(),
-  contactNumber: z.string().min(7, "Contact number looks too short"),
+  contactNumber: contactNumberSchema,
   email: z.string().email("Must be a valid email").optional(),
   address: z.string().min(1),
   dateOfBirth: z.coerce.date().optional(),
   bloodType: z.string().max(10).optional(),
   guardianName: z.string().min(1).optional(),
-  guardianContactNumber: z.string().min(7).optional(),
+  guardianContactNumber: contactNumberSchema.optional(),
   emergencyContactName: z.string().trim().min(1).max(200).optional(),
-  emergencyContactNumber: z.string().min(7).optional(),
+  emergencyContactNumber: contactNumberSchema.optional(),
   healthConditions: z.string().optional(),
   medicalAlerts: z.object({
     allergies: z.array(z.string().min(1)).optional(),
@@ -70,8 +77,6 @@ const patientPayloadSchema = z.object({
     currentMedications: z.array(z.string().min(1)).optional(),
     notes: z.string().optional(),
   }).optional(),
-  schoolYear: z.string().regex(/^\d{4}-\d{4}$/).optional(),
-  enrollmentStatus: z.enum(["active", "graduated", "transferred"]).optional(),
   immunizations: z.array(z.object({
     vaccine: z.string().min(1),
     dateAdministered: z.coerce.date().optional(),
@@ -81,9 +86,25 @@ const patientPayloadSchema = z.object({
 
 export const createPatientSchema = patientPayloadSchema.superRefine((value, ctx) => {
   if (value.patientType === "student") {
+    const educationLevel = value.educationLevel ?? "college";
     if (!value.studentId) ctx.addIssue({ code: "custom", path: ["studentId"], message: "Student ID is required" });
-    if (!value.course) ctx.addIssue({ code: "custom", path: ["course"], message: "Course is required" });
     if (!value.yearLevel) ctx.addIssue({ code: "custom", path: ["yearLevel"], message: "Year level is required" });
+    if (educationLevel === "college" && !value.course) {
+      ctx.addIssue({ code: "custom", path: ["course"], message: "Course is required for college students" });
+    }
+    if (educationLevel === "college" && value.yearLevel && value.yearLevel > (value.programDurationYears ?? 4)) {
+      ctx.addIssue({ code: "custom", path: ["yearLevel"], message: "College year cannot exceed the program length" });
+    }
+    const gradeRange = educationLevel === "elementary"
+      ? { min: 1, max: 6, label: "Elementary grade" }
+      : educationLevel === "junior_high"
+        ? { min: 7, max: 10, label: "Junior High grade" }
+        : educationLevel === "senior_high"
+          ? { min: 11, max: 12, label: "Senior High grade" }
+          : null;
+    if (gradeRange && value.yearLevel && (value.yearLevel < gradeRange.min || value.yearLevel > gradeRange.max)) {
+      ctx.addIssue({ code: "custom", path: ["yearLevel"], message: `${gradeRange.label} must be between ${gradeRange.min} and ${gradeRange.max}` });
+    }
   } else {
     if (!value.employeeId) ctx.addIssue({ code: "custom", path: ["employeeId"], message: "Employee ID is required" });
     if (!value.department) ctx.addIssue({ code: "custom", path: ["department"], message: "Department is required" });
@@ -116,7 +137,11 @@ export const updateOwnProfileSchema = z.object({
 
 export const advanceSchoolYearSchema = z.object({
   schoolYear: z.string().regex(/^\d{4}-\d{4}$/, "School year must use YYYY-YYYY"),
-  graduatingYearLevel: z.number().int().min(1).max(10).default(4),
+});
+
+export const reviewStudentCompletionSchema = z.object({
+  decision: z.enum(["graduated", "retained", "extended", "transferred"]),
+  notes: z.string().trim().max(2000, "Review notes must not exceed 2000 characters").optional(),
 });
 
 

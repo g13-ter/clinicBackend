@@ -296,6 +296,21 @@ export const getVisitsByPatient = async (req: Request, res: Response, next: Next
   }
 };
 
+// GET LATEST VITALS — used to prefill editable triage fields, not audit-logged
+export const getLatestRecordedVitals = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const patientId = req.params.patientId as string;
+    const latestVitals = await clinicVisitService.getLatestRecordedVitals(patientId);
+    res.status(200).json({
+      success: true,
+      message: latestVitals ? "Latest recorded height and weight retrieved" : "No previous height or weight recorded",
+      data: latestVitals,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // GET BY ID — read-only, not audit-logged
 export const getVisitById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {

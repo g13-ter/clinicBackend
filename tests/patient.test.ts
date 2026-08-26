@@ -227,6 +227,51 @@ describe("Patients - View permissions differ by role", () => {
 
   });
 
+  it("registers an elementary student without requiring a college course", async () => {
+    const res = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        studentId: `TEST-ELEM-${Date.now()}`,
+        firstName: "TEST",
+        lastName: "Elementary",
+        age: 10,
+        gender: "Female",
+        educationLevel: "elementary",
+        yearLevel: 4,
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.educationLevel).toBe("elementary");
+    expect(res.body.data.course).toBeUndefined();
+    staffCreatedPatientIds.push(res.body.data._id);
+  });
+
+  it("requires a course for college students", async () => {
+    const res = await request(app)
+      .post("/api/patients")
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({
+        studentId: `TEST-COLLEGE-NO-COURSE-${Date.now()}`,
+        firstName: "TEST",
+        lastName: "College",
+        age: 19,
+        gender: "Male",
+        educationLevel: "college",
+        yearLevel: 1,
+        programDurationYears: 4,
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "course" }),
+    ]));
+  });
+
   it("registers a teacher with employee fields and returns it through the teacher filter", async () => {
     const employeeId = `TEST-EMP-${Date.now()}`;
     const created = await request(app)
