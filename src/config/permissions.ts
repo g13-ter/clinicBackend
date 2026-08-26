@@ -12,6 +12,7 @@ export const PERMISSIONS = {
     viewById: ["staff", "doctor", "nurse"] as const satisfies readonly UserRole[],
     update: ["staff", "nurse"] as const satisfies readonly UserRole[],
     archive: ["admin"] as const satisfies readonly UserRole[],
+    reviewCompletion: ["admin"] as const satisfies readonly UserRole[],
     updateClinicalProfile: ["doctor", "nurse"] as const satisfies readonly UserRole[],
   },
   appointments: {

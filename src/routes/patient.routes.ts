@@ -8,6 +8,7 @@ import {
   updatePatient,
   archivePatient,
   advanceStudentSchoolYear,
+  reviewStudentCompletion,
   updateClinicalProfile,
 } from "../controllers/patient.controller";
 
@@ -17,6 +18,7 @@ import { validateBody } from "../middleware/validate.middleware";
 import {
   advanceSchoolYearSchema,
   createPatientSchema,
+  reviewStudentCompletionSchema,
   updatePatientSchema,
   updateClinicalProfileSchema,
 } from "../validators/schemas";
@@ -48,6 +50,14 @@ router.post(
   allowRoles("admin", "superadmin"),
   validateBody(advanceSchoolYearSchema),
   advanceStudentSchoolYear,
+);
+
+router.put(
+  "/:id/completion-review",
+  protect,
+  allowRoles("admin"),
+  validateBody(reviewStudentCompletionSchema),
+  reviewStudentCompletion,
 );
 
 

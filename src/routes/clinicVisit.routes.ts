@@ -3,6 +3,7 @@ import express from "express";
 import {
   createVisit,
   getVisitsByPatient,
+  getLatestRecordedVitals,
   getVisitById,
   updateVisit,
   archiveVisit,
@@ -51,6 +52,13 @@ router.post(
 
 
 // Doctor + Nurse - view all visits for a patient
+router.get(
+  "/patient/:patientId/latest-vitals",
+  protect,
+  allowRoles("doctor", "nurse"),
+  getLatestRecordedVitals,
+);
+
 router.get(
   "/patient/:patientId",
   protect,

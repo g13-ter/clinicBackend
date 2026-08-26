@@ -8,6 +8,7 @@ import InventoryBatch from "../src/models/inventoryBatch.model";
 import PurchaseRequest from "../src/models/purchaseRequest.model";
 import NotificationOutbox from "../src/models/notificationOutbox.model";
 import StockMovement from "../src/models/stockMovement.model";
+import AuditLog from "../src/models/auditLog.model";
 import {
   enqueueNotification,
   processNotificationOutbox,
@@ -37,6 +38,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await AuditLog.deleteMany({ resource: "StudentCompletionReview", resourceId: { $in: patientIds } });
   await Patient.deleteMany({ _id: { $in: patientIds } });
   await StockMovement.deleteMany({ medicineId: { $in: medicineIds } });
   await InventoryBatch.deleteMany({ _id: { $in: batchIds } });
@@ -57,8 +59,10 @@ describe("School-year rollover", () => {
       lastName: "Student",
       age: 19,
       gender: "Female",
+      educationLevel: "college" as const,
       course: "BSIT",
       yearLevel: 2,
+      programDurationYears: 4,
       contactNumber: "09171234567",
       address: "Test Address",
     };
@@ -68,15 +72,156 @@ describe("School-year rollover", () => {
     const firstRollover = await request(app)
       .post("/api/patients/school-year/advance")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ schoolYear: "2030-2031", graduatingYearLevel: 4 });
+      .send({ schoolYear: "2030-2031" });
     const secondRollover = await request(app)
       .post("/api/patients/school-year/advance")
       .set("Authorization", `Bearer ${adminToken}`)
-      .send({ schoolYear: "2030-2031", graduatingYearLevel: 4 });
+      .send({ schoolYear: "2030-2031" });
 
     expect(firstRollover.status).toBe(200);
     expect(secondRollover.status).toBe(200);
     expect((await Patient.findById(patient._id))?.yearLevel).toBe(3);
+  });
+
+  it("uses education-specific completion levels and college program length", async () => {
+    const suffix = Date.now();
+    const students = await Patient.create([
+      { studentId: `TEST-ELEM-${suffix}`, firstName: "Elem", lastName: "Student", age: 12, gender: "Female", educationLevel: "elementary", yearLevel: 6, contactNumber: "09171234567", address: "Test Address" },
+      { studentId: `TEST-JHS-${suffix}`, firstName: "Junior", lastName: "Student", age: 15, gender: "Male", educationLevel: "junior_high", yearLevel: 9, contactNumber: "09171234567", address: "Test Address" },
+      { studentId: `TEST-JHS-FINAL-${suffix}`, firstName: "Junior Final", lastName: "Student", age: 16, gender: "Female", educationLevel: "junior_high", yearLevel: 10, contactNumber: "09171234567", address: "Test Address" },
+      { studentId: `TEST-SHS-${suffix}`, firstName: "Senior", lastName: "Student", age: 18, gender: "Female", educationLevel: "senior_high", yearLevel: 12, contactNumber: "09171234567", address: "Test Address" },
+      { studentId: `TEST-COLLEGE-${suffix}`, firstName: "College", lastName: "Student", age: 22, gender: "Male", educationLevel: "college", course: "BS Architecture", yearLevel: 4, programDurationYears: 5, contactNumber: "09171234567", address: "Test Address" },
+      { studentId: `TEST-COLLEGE-FINAL-${suffix}`, firstName: "College Final", lastName: "Student", age: 23, gender: "Female", educationLevel: "college", course: "BS Architecture", yearLevel: 5, programDurationYears: 5, contactNumber: "09171234567", address: "Test Address" },
+    ]);
+    patientIds.push(...students.map((student) => String(student._id)));
+
+    const response = await request(app)
+      .post("/api/patients/school-year/advance")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ schoolYear: "2031-2032" });
+
+    expect(response.status).toBe(200);
+    const elementary = await Patient.findById(students[0]!._id);
+    const juniorHigh = await Patient.findById(students[1]!._id);
+    const juniorHighFinal = await Patient.findById(students[2]!._id);
+    const seniorHigh = await Patient.findById(students[3]!._id);
+    const college = await Patient.findById(students[4]!._id);
+    const collegeFinal = await Patient.findById(students[5]!._id);
+
+    expect(elementary?.enrollmentStatus).toBe("completion_pending");
+    expect(elementary?.isActive).toBe(true);
+    expect(juniorHigh?.yearLevel).toBe(10);
+    expect(juniorHigh?.enrollmentStatus).toBe("active");
+    expect(juniorHighFinal?.enrollmentStatus).toBe("completion_pending");
+    expect(juniorHighFinal?.isActive).toBe(true);
+    expect(seniorHigh?.enrollmentStatus).toBe("completion_pending");
+    expect(seniorHigh?.isActive).toBe(true);
+    expect(college?.yearLevel).toBe(5);
+    expect(college?.enrollmentStatus).toBe("active");
+    expect(collegeFinal?.enrollmentStatus).toBe("completion_pending");
+    expect(collegeFinal?.isActive).toBe(true);
+  });
+
+  it.each([
+    ["graduated", "graduated", false],
+    ["retained", "active", true],
+    ["extended", "extended", true],
+    ["transferred", "transferred", false],
+  ] as const)(
+    "lets an admin resolve a completion candidate as %s",
+    async (decision, expectedStatus, expectedActive) => {
+      const suffix = `${decision}-${Date.now()}`;
+      const candidate = await Patient.create({
+        studentId: `TEST-REVIEW-${suffix}`,
+        firstName: "Review",
+        lastName: "Candidate",
+        age: 18,
+        gender: "Female",
+        educationLevel: "senior_high",
+        yearLevel: 12,
+        enrollmentStatus: "completion_pending",
+        contactNumber: "09171234567",
+        address: "Test Address",
+      });
+      patientIds.push(String(candidate._id));
+
+      const response = await request(app)
+        .put(`/api/patients/${candidate._id}/completion-review`)
+        .set("Authorization", `Bearer ${adminToken}`)
+        .send({ decision, notes: `Confirmed ${decision}` });
+
+      expect(response.status).toBe(200);
+      const reviewed = await Patient.findById(candidate._id);
+      expect(reviewed?.enrollmentStatus).toBe(expectedStatus);
+      expect(reviewed?.isActive).toBe(expectedActive);
+      expect(reviewed?.completionReviewDecision).toBe(decision);
+      expect(reviewed?.completionReviewNotes).toBe(`Confirmed ${decision}`);
+      expect(String(reviewed?.completionReviewedBy)).toBe(adminId);
+      expect(reviewed?.completionReviewedAt).toBeInstanceOf(Date);
+      const auditEntry = await AuditLog.findOne({
+        resource: "StudentCompletionReview",
+        resourceId: String(candidate._id),
+        performedBy: adminId,
+      });
+      expect(auditEntry).not.toBeNull();
+      expect(auditEntry?.changes?.after).toMatchObject({
+        completionReviewDecision: decision,
+        completionReviewNotes: `Confirmed ${decision}`,
+        enrollmentStatus: expectedStatus,
+        isActive: expectedActive,
+      });
+      expect(auditEntry?.changes?.after).not.toHaveProperty("medicalAlerts");
+    },
+  );
+
+  it("keeps completion decisions Admin-only", async () => {
+    const candidate = await Patient.create({
+      studentId: `TEST-REVIEW-RBAC-${Date.now()}`,
+      firstName: "Restricted",
+      lastName: "Candidate",
+      age: 18,
+      gender: "Male",
+      educationLevel: "senior_high",
+      yearLevel: 12,
+      enrollmentStatus: "completion_pending",
+      contactNumber: "09171234567",
+      address: "Test Address",
+    });
+    patientIds.push(String(candidate._id));
+
+    const response = await request(app)
+      .put(`/api/patients/${candidate._id}/completion-review`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ decision: "graduated" });
+
+    expect(response.status).toBe(403);
+    expect((await Patient.findById(candidate._id))?.enrollmentStatus).toBe("completion_pending");
+  });
+
+  it("does not let a nurse change an enrollment outcome through the general patient update", async () => {
+    const candidate = await Patient.create({
+      studentId: `TEST-REVIEW-UPDATE-${Date.now()}`,
+      firstName: "Protected",
+      lastName: "Candidate",
+      age: 18,
+      gender: "Female",
+      educationLevel: "senior_high",
+      yearLevel: 12,
+      enrollmentStatus: "completion_pending",
+      contactNumber: "09171234567",
+      address: "Test Address",
+    });
+    patientIds.push(String(candidate._id));
+
+    const response = await request(app)
+      .put(`/api/patients/${candidate._id}`)
+      .set("Authorization", `Bearer ${nurseToken}`)
+      .send({ enrollmentStatus: "graduated", schoolYear: "2032-2033" });
+
+    expect(response.status).toBe(200);
+    const unchanged = await Patient.findById(candidate._id);
+    expect(unchanged?.enrollmentStatus).toBe("completion_pending");
+    expect(unchanged?.schoolYear).toBeUndefined();
   });
 });
 

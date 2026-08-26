@@ -2,14 +2,16 @@ import mongoose, { Schema, Document } from "mongoose";
 
 export interface IPatient extends Document {
   patientType: "student" | "teacher" | "staff";
+  educationLevel?: "elementary" | "junior_high" | "senior_high" | "college";
   studentId: string;
   employeeId?: string;
   firstName: string;
   lastName: string;
   age: number;
   gender: string;
-  course: string;
+  course?: string;
   yearLevel: number;
+  programDurationYears?: number;
   department?: string;
   position?: string;
   contactNumber: string;
@@ -34,7 +36,11 @@ export interface IPatient extends Document {
   clinicalProfileVerifiedBy?: mongoose.Types.ObjectId;
   clinicalProfileVerifiedAt?: Date;
   schoolYear?: string;
-  enrollmentStatus: "active" | "graduated" | "transferred";
+  enrollmentStatus: "active" | "completion_pending" | "extended" | "graduated" | "transferred";
+  completionReviewDecision?: "graduated" | "retained" | "extended" | "transferred";
+  completionReviewNotes?: string;
+  completionReviewedAt?: Date;
+  completionReviewedBy?: mongoose.Types.ObjectId;
   immunizations?: { vaccine: string; dateAdministered?: Date; notes?: string }[];
   isActive: boolean;
   createdBy?: mongoose.Types.ObjectId;
@@ -48,6 +54,14 @@ const PatientSchema = new Schema<IPatient>(
       enum: ["student", "teacher", "staff"],
       default: "student",
       required: true,
+      index: true,
+    },
+    educationLevel: {
+      type: String,
+      enum: ["elementary", "junior_high", "senior_high", "college"],
+      default: function (this: IPatient): string | undefined {
+        return this.patientType === "student" ? "college" : undefined;
+      },
       index: true,
     },
     studentId: {
@@ -88,14 +102,24 @@ const PatientSchema = new Schema<IPatient>(
 
     course: {
       type: String,
-      required: function (this: IPatient): boolean { return this.patientType === "student"; },
-      default: "",
+      required: function (this: IPatient): boolean {
+        return this.patientType === "student" && (this.educationLevel ?? "college") === "college";
+      },
+      trim: true,
     },
 
     yearLevel: {
       type: Number,
       required: function (this: IPatient): boolean { return this.patientType === "student"; },
       default: 1,
+    },
+    programDurationYears: {
+      type: Number,
+      min: 1,
+      max: 10,
+      default: function (this: IPatient): number | undefined {
+        return this.patientType === "student" && (this.educationLevel ?? "college") === "college" ? 4 : undefined;
+      },
     },
     department: String,
     position: String,
@@ -142,9 +166,23 @@ const PatientSchema = new Schema<IPatient>(
     schoolYear: String,
     enrollmentStatus: {
       type: String,
-      enum: ["active", "graduated", "transferred"],
+      enum: ["active", "completion_pending", "extended", "graduated", "transferred"],
       default: "active",
       index: true,
+    },
+    completionReviewDecision: {
+      type: String,
+      enum: ["graduated", "retained", "extended", "transferred"],
+    },
+    completionReviewNotes: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+    },
+    completionReviewedAt: Date,
+    completionReviewedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
     },
     immunizations: [{
       vaccine: { type: String, required: true },
