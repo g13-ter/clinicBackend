@@ -76,6 +76,7 @@ export const PERMISSIONS = {
   },
   systemSettings: {
     manage: ["admin", "superadmin"] as const satisfies readonly UserRole[],
+    manageClinicProfile: ["nurse", "admin", "superadmin"] as const satisfies readonly UserRole[],
   },
 } as const;
 

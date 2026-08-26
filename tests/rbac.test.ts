@@ -189,7 +189,7 @@ describe("RBAC — invalid token payload", () => {
     expect(response.status).toBe(400);
   });
 
-  it("includes BMI recorded by a nurse for patients under 18", async () => {
+  it("stores pediatric BMI without applying adult analytics categories", async () => {
     const before = await request(app)
       .get("/api/dashboard/analytics?patientType=student")
       .set("Authorization", `Bearer ${nurseToken}`);
@@ -215,8 +215,8 @@ describe("RBAC — invalid token payload", () => {
         .set("Authorization", `Bearer ${nurseToken}`);
 
       expect(after.status).toBe(200);
-      expect(after.body.data.bmiRecordedCount).toBe(before.body.data.bmiRecordedCount + 1);
-      expect(after.body.data.bmiBreakdown.obese).toBe(before.body.data.bmiBreakdown.obese + 1);
+      expect(after.body.data.bmiRecordedCount).toBe(before.body.data.bmiRecordedCount);
+      expect(after.body.data.bmiBreakdown).toEqual(before.body.data.bmiBreakdown);
     } finally {
       await ClinicVisit.findByIdAndDelete(visit.body.data._id);
     }
