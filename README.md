@@ -420,8 +420,8 @@ Request -> server.ts (matches URL prefix)
 
 ## Deployment notes (Render + Vercel)
 
-- **Backend (Render):** set `NODE_ENV=production`, `MONGO_URI`, `JWT_SECRET`, and `CLIENT_ORIGIN` as environment variables in Render's dashboard (use a fresh `JWT_SECRET`, don't reuse your local dev one). `PORT` is set automatically by Render.
+- **Backend (Render):** set `NODE_ENV=production`, `MONGO_URI`, `JWT_SECRET`, `CLIENT_ORIGIN`, and `LOGIN_PROXY_SECRET` as environment variables in Render's dashboard (use fresh secrets and don't reuse local development values). `PORT` is set automatically by Render.
 - `CLIENT_ORIGIN` must list every frontend origin allowed to call this API, comma-separated (e.g. your production Vercel domain plus any preview-branch URLs you're actively testing). Requests from any other origin are rejected with a `403 Request origin is not allowed`.
 - If using MongoDB Atlas, allow access from `0.0.0.0/0` in Atlas's Network Access settings, since Render doesn't provide a fixed outbound IP to allowlist individually.
-- **Frontend (Vercel):** set a `vercel.json` at the project root rewriting `/api/:path*` to this backend's URL, so API calls stay same-origin from the browser and avoid CORS/cookie cross-domain issues entirely. The catch-all `/(.*)→/index.html` rewrite must come after the `/api` rule.
+- **Frontend (Vercel):** configure `BACKEND_API_URL` with the Render URL including `/api`, and configure the same `LOGIN_PROXY_SECRET` used by Render. `vercel.json` routes `/api/:path*` through `api/proxy.ts`, preserving same-origin cookies while securely forwarding Vercel's client address. Keep the catch-all SPA rewrite after the `/api` rule.
 - Logging is console-only (see below) — read logs from Render's own dashboard rather than a local file, since Render's filesystem is ephemeral like Railway's.

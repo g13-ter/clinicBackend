@@ -1,5 +1,6 @@
 import rateLimit, { ipKeyGenerator, MemoryStore } from "express-rate-limit";
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import type { Request } from "express";
 import jwt from "jsonwebtoken";
 import { jwtPayloadSchema } from "../types/auth";
@@ -17,7 +18,24 @@ const loginIpStore = process.env.NODE_ENV === "production"
   ? new MongoRateLimitStore("login-ip:")
   : new MemoryStore();
 
-const loginIpKey = (req: Request): string => ipKeyGenerator(req.ip ?? "");
+const secretsMatch = (actual: string, expected: string): boolean => {
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length &&
+    timingSafeEqual(actualBuffer, expectedBuffer);
+};
+
+const trustedProxyClientIp = (req: Request): string | null => {
+  const expectedSecret = process.env.LOGIN_PROXY_SECRET;
+  const suppliedSecret = req.header("x-schoolcare-proxy-secret") ?? "";
+  if (!expectedSecret || !secretsMatch(suppliedSecret, expectedSecret)) return null;
+
+  const suppliedIp = req.header("x-schoolcare-client-ip")?.trim() ?? "";
+  return isIP(suppliedIp) ? suppliedIp : null;
+};
+
+const loginIpKey = (req: Request): string =>
+  ipKeyGenerator(trustedProxyClientIp(req) ?? req.ip ?? "");
 
 export const getLoginIpCooldownSeconds = async (req: Request): Promise<number> => {
   const rateLimitInfo = await loginIpStore.get(loginIpKey(req));
