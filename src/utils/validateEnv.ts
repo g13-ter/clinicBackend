@@ -29,6 +29,14 @@ export const validateEnv = (): void => {
   }
 
   if (
+    process.env.NODE_ENV === "production" &&
+    (process.env.LOGIN_PROXY_SECRET?.length ?? 0) < 32
+  ) {
+    logger.error("FATAL ERROR: LOGIN_PROXY_SECRET must be at least 32 characters in production.");
+    process.exit(1);
+  }
+
+  if (
     process.env.MONGO_TRANSACTIONS_ENABLED &&
     !["true", "false"].includes(process.env.MONGO_TRANSACTIONS_ENABLED)
   ) {
