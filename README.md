@@ -211,7 +211,7 @@ password is validated server-side and is never stored in an audit record.
 Every route except `POST /api/auth/login` requires a JWT token, sent as a header:
 Authorization: Bearer <your token here>
 
-You get a token back from `/api/auth/login`. Five failed attempts for the same account trigger a two-minute cooldown. Successful logins do not count, and a broader IP limit protects against automated guessing across multiple accounts. A general rate limit also applies across the whole API.
+You get a token back from `/api/auth/login`. Five failed attempts for the same account trigger a two-minute cooldown. Five failed attempts from the same public IP, even across different email addresses, also trigger a two-minute cooldown. Successful logins do not count. `GET /api/auth/login-cooldown` reports the remaining IP cooldown so login pages in other browsers can synchronize. A general rate limit also applies across the whole API.
 
 ---
 

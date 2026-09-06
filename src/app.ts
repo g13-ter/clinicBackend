@@ -77,7 +77,7 @@ app.use(cors({
     }
   },
   credentials: true,
-  exposedHeaders: ["X-Request-ID"],
+  exposedHeaders: ["X-Request-ID", "Retry-After"],
 }));
 // Keep a fixed, validated request-size ceiling. This protects API workers from
 // oversized JSON bodies and avoids relying on environment-derived parser limits.

@@ -5,6 +5,7 @@ import type { CookieOptions } from "express";
 import { SESSION_COOKIE_NAME } from "../utils/sessionToken";
 import User from "../models/user.model";
 import { CURRENT_TERMS_VERSION } from "../config/terms";
+import { getLoginIpCooldownSeconds } from "../middleware/rateLimit.middleware";
 
 const authService = new AuthService();
 
@@ -38,6 +39,23 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
 export const logout = (_req: Request, res: Response): void => {
   res.clearCookie(SESSION_COOKIE_NAME, cookieOptions());
   res.status(200).json({ success: true, message: "Logged out", data: null });
+};
+
+export const loginCooldown = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const retryAfterSeconds = await getLoginIpCooldownSeconds(req);
+    res.status(200).json({
+      success: true,
+      message: "Login cooldown status retrieved",
+      data: { retryAfterSeconds },
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const session = (req: Request, res: Response): void => {

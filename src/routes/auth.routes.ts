@@ -1,5 +1,5 @@
 import express from "express";
-import { acceptTerms, login, logout, session } from "../controllers/auth.controller";
+import { acceptTerms, login, loginCooldown, logout, session } from "../controllers/auth.controller";
 import { validateBody } from "../middleware/validate.middleware";
 import { loginSchema } from "../validators/schemas";
 import { loginIpLimiter, loginLimiter } from "../middleware/rateLimit.middleware";
@@ -9,6 +9,7 @@ const router = express.Router();
 
 // Login only; admins create accounts through /api/users.
 router.post("/login", loginIpLimiter, loginLimiter, validateBody(loginSchema), login);
+router.get("/login-cooldown", loginCooldown);
 router.post("/logout", logout);
 router.get("/session", protectPendingTerms, session);
 router.post("/terms/accept", protectPendingTerms, acceptTerms);
