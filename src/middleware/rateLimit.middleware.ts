@@ -1,4 +1,4 @@
-import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import rateLimit, { ipKeyGenerator, MemoryStore } from "express-rate-limit";
 import { createHash } from "node:crypto";
 import type { Request } from "express";
 import jwt from "jsonwebtoken";
@@ -7,10 +7,27 @@ import { getRequestToken } from "../utils/sessionToken";
 import { MongoRateLimitStore } from "../services/mongoRateLimitStore";
 
 const LOGIN_WINDOW_MS = 2 * 60 * 1000;
+const LOGIN_IP_LIMIT = 5;
 const productionStore = (prefix: string) =>
   process.env.NODE_ENV === "production"
     ? { store: new MongoRateLimitStore(prefix) }
     : {};
+
+const loginIpStore = process.env.NODE_ENV === "production"
+  ? new MongoRateLimitStore("login-ip:")
+  : new MemoryStore();
+
+const loginIpKey = (req: Request): string => ipKeyGenerator(req.ip ?? "");
+
+export const getLoginIpCooldownSeconds = async (req: Request): Promise<number> => {
+  const rateLimitInfo = await loginIpStore.get(loginIpKey(req));
+  if (
+    !rateLimitInfo ||
+    rateLimitInfo.totalHits < LOGIN_IP_LIMIT ||
+    !rateLimitInfo.resetTime
+  ) return 0;
+  return Math.max(0, Math.ceil((rateLimitInfo.resetTime.getTime() - Date.now()) / 1000));
+};
 
 const verifiedBearerToken = (req: Request): string | null => {
   const token = getRequestToken(req);
@@ -52,10 +69,14 @@ export const loginLimiter = rateLimit({
 
 // Also cap broad password guessing across many accounts from one source.
 export const loginIpLimiter = rateLimit({
-  ...productionStore("login-ip:"),
+  store: loginIpStore,
   windowMs: LOGIN_WINDOW_MS,
-  limit: 30,
-  keyGenerator: (req) => ipKeyGenerator(req.ip ?? ""),
+  limit: LOGIN_IP_LIMIT,
+  keyGenerator: loginIpKey,
+  // Integration tests share one synthetic source address. The per-account
+  // limiter remains active there; production and development exercise this
+  // shared-source limiter.
+  skip: () => process.env.NODE_ENV === "test",
   skipSuccessfulRequests: true,
   message: {
     message: "Too many failed login attempts. Please try again in 2 minutes."
