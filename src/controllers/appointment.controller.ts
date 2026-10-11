@@ -22,6 +22,16 @@ type AppointmentLifecycleKind =
   | "appointment_rescheduled"
   | "appointment_cancelled";
 
+const appointmentNotificationLink = (appointmentDate: Date): string => {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.CLINIC_TIME_ZONE || "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(appointmentDate);
+  return `/appointments?date=${encodeURIComponent(date)}`;
+};
+
 const enqueueAppointmentLifecycleNotification = async (
   kind: AppointmentLifecycleKind,
   appointment: IAppointment,
@@ -58,7 +68,7 @@ const enqueueAppointmentLifecycleNotification = async (
         timeStyle: "short",
         timeZone: process.env.CLINIC_TIME_ZONE || "Asia/Manila",
       })}`,
-      link: "/dashboard?tab=appointments",
+      link: appointmentNotificationLink(appointment.appointmentDate),
       resourceType: "Appointment",
       resourceId: String(appointment._id),
       dedupeKey: `doctor:${kind}:${appointment._id}:${appointment.updatedAt.toISOString()}:${appointment.doctorId}`,
@@ -248,7 +258,7 @@ export const updateAppointment = async (req: Request, res: Response, next: NextF
           kind: "appointment_reassigned",
           title: "Appointment reassigned",
           message: "An appointment previously assigned to you was reassigned.",
-          link: "/dashboard?tab=appointments",
+          link: appointmentNotificationLink(result.after.appointmentDate),
           resourceType: "Appointment",
           resourceId: String(result.after._id),
           dedupeKey: `doctor:appointment_reassigned:${result.after._id}:${result.after.updatedAt.toISOString()}:${previousDoctorId}`,
