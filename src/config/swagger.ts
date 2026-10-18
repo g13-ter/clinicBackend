@@ -375,6 +375,8 @@ const paths: ZodOpenApiPathsObject = {
     get: {
       tags: ["Analytics"],
       summary: "Get clinic analytics filtered by patient type (doctor/nurse only)",
+      description:
+        "BMI analytics separates adult BMI categories (age 20 and older) from pediatric BMI-for-age categories (ages 2–19). Pediatric classifications use age- and sex-specific CDC reference percentiles; readings under age 2 or without usable age/sex data are excluded.",
       security: bearerAuth,
       requestParams: {
         query: z.object({
