@@ -78,6 +78,9 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
     delete operationalStats.analyticsVisitBreakdown;
     delete operationalStats.bmiRecordedCount;
     delete operationalStats.bmiBreakdown;
+    delete operationalStats.pediatricBmiRecordedCount;
+    delete operationalStats.pediatricBmiBreakdown;
+    delete operationalStats.bmiUnclassifiedCount;
     if (actor.role === "admin" || actor.role === "staff") {
       // Non-clinical dashboards receive only operational workload data, not analytics or inventory data.
       stats.recentCases = [];

@@ -8,6 +8,7 @@ import PurchaseRequest from "../models/purchaseRequest.model";
 import AuditLog from "../models/auditLog.model";
 import { computeStatus } from "./medicine.service";
 import { clinicDateKey, clinicDayRange } from "../utils/clinicTime";
+import { ageInMonthsAtVisit, classifyAdultBmi, classifyPediatricBmi } from "../utils/bmi";
 
 export type AnalyticsPatientType = "all" | "student" | "teacher" | "staff";
 export type AnalyticsPeriod = "year" | "month" | "week" | "day" | "custom";
@@ -79,6 +80,9 @@ export interface DashboardStats {
   analyticsVisitBreakdown: { student: number; teacher: number; staff: number };
   bmiRecordedCount: number;
   bmiBreakdown: { underweight: number; normalWeight: number; overweight: number; obese: number };
+  pediatricBmiRecordedCount: number;
+  pediatricBmiBreakdown: { underweight: number; healthyWeight: number; overweight: number; obesity: number };
+  bmiUnclassifiedCount: number;
   recentCases: {
     id: string;
     date: Date;
@@ -193,7 +197,8 @@ export class DashboardService {
     range: AnalyticsRange,
   ): Promise<Pick<DashboardStats,
     "commonComplaints" | "monthlyVisits" | "analyticsPatientType" |
-    "analyticsTotalVisits" | "analyticsVisitBreakdown" | "bmiRecordedCount" | "bmiBreakdown"
+    "analyticsTotalVisits" | "analyticsVisitBreakdown" | "bmiRecordedCount" | "bmiBreakdown" |
+    "pediatricBmiRecordedCount" | "pediatricBmiBreakdown" | "bmiUnclassifiedCount"
   >> {
     const patientType = analyticsPatientType === "all" ? undefined : analyticsPatientType;
     const patientTypeQuery: Record<string, unknown> = patientType === "student"
@@ -212,7 +217,7 @@ export class DashboardService {
       ? "%Y-%m"
       : range.period === "day" ? "%H:00" : "%Y-%m-%d";
 
-    const [complaintDocs, seriesDocs, breakdownDocs, bmiDocs] = await Promise.all([
+    const [complaintDocs, seriesDocs, breakdownDocs, bmiVisits] = await Promise.all([
       ClinicVisit.aggregate<{ _id: string; count: number }>([
         { $match: { ...match, complaint: { $type: "string", $ne: "" } } },
         { $group: { _id: { $toLower: { $trim: { input: "$complaint" } } }, count: { $sum: 1 } } },
@@ -230,17 +235,24 @@ export class DashboardService {
         { $unwind: { path: "$patient", preserveNullAndEmptyArrays: true } },
         { $group: { _id: { $ifNull: ["$patient.patientType", "student"] }, visits: { $sum: 1 } } },
       ]),
-      ClinicVisit.aggregate<{ _id: "underweight" | "normalWeight" | "overweight" | "obese"; count: number }>([
-        { $match: { ...match, bmi: { $type: "number" } } },
+      ClinicVisit.aggregate<{
+        bmi: number;
+        visitDate: Date;
+        patientAge?: number;
+        gender?: string;
+        dateOfBirth?: Date;
+      }>([
+        { $match: { ...match, bmi: { $type: "number", $gt: 0 } } },
         { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
         { $unwind: "$patient" },
-        { $match: { "patient.age": { $gte: 18 } } },
-        { $project: { category: { $switch: { branches: [
-          { case: { $lt: ["$bmi", 18.5] }, then: "underweight" },
-          { case: { $lt: ["$bmi", 25] }, then: "normalWeight" },
-          { case: { $lt: ["$bmi", 30] }, then: "overweight" },
-        ], default: "obese" } } } },
-        { $group: { _id: "$category", count: { $sum: 1 } } },
+        { $project: {
+          _id: 0,
+          bmi: 1,
+          visitDate: 1,
+          patientAge: "$patient.age",
+          gender: "$patient.gender",
+          dateOfBirth: "$patient.dateOfBirth",
+        } },
       ]),
     ]);
 
@@ -250,7 +262,21 @@ export class DashboardService {
       ? analyticsVisitBreakdown[patientType]
       : Object.values(analyticsVisitBreakdown).reduce((sum, count) => sum + count, 0);
     const bmiBreakdown = { underweight: 0, normalWeight: 0, overweight: 0, obese: 0 };
-    for (const entry of bmiDocs) bmiBreakdown[entry._id] = entry.count;
+    const pediatricBmiBreakdown = { underweight: 0, healthyWeight: 0, overweight: 0, obesity: 0 };
+    let bmiUnclassifiedCount = 0;
+    for (const entry of bmiVisits) {
+      const ageMonths = ageInMonthsAtVisit(entry.dateOfBirth, entry.visitDate, entry.patientAge);
+      if (ageMonths === null) {
+        bmiUnclassifiedCount += 1;
+      } else if (ageMonths >= 240) {
+        const category = classifyAdultBmi(entry.bmi);
+        bmiBreakdown[category] = (bmiBreakdown[category] ?? 0) + 1;
+      } else {
+        const category = classifyPediatricBmi(entry.bmi, ageMonths, entry.gender ?? "");
+        if (category) pediatricBmiBreakdown[category] = (pediatricBmiBreakdown[category] ?? 0) + 1;
+        else bmiUnclassifiedCount += 1;
+      }
+    }
     const seriesCounts = new Map(seriesDocs.map((entry) => [entry._id, entry.visits]));
 
     return {
@@ -261,6 +287,9 @@ export class DashboardService {
       analyticsVisitBreakdown,
       bmiRecordedCount: Object.values(bmiBreakdown).reduce((sum, count) => sum + count, 0),
       bmiBreakdown,
+      pediatricBmiRecordedCount: Object.values(pediatricBmiBreakdown).reduce((sum, count) => sum + count, 0),
+      pediatricBmiBreakdown,
+      bmiUnclassifiedCount,
     };
   }
 
@@ -376,6 +405,9 @@ export class DashboardService {
       ]),
       ClinicVisit.aggregate<{ _id: "underweight" | "normalWeight" | "overweight" | "obese"; count: number }>([
         { $match: { ...analyticsRange, ...analyticsPatientFilter, bmi: { $type: "number" } } },
+        { $lookup: { from: "patients", localField: "patientId", foreignField: "_id", as: "patient" } },
+        { $unwind: "$patient" },
+        { $match: { "patient.age": { $gte: 20 } } },
         {
           $project: {
             category: {
@@ -430,6 +462,7 @@ export class DashboardService {
     const bmiBreakdown = { underweight: 0, normalWeight: 0, overweight: 0, obese: 0 };
     for (const entry of bmiBreakdownDocs) bmiBreakdown[entry._id] = entry.count;
     const bmiRecordedCount = Object.values(bmiBreakdown).reduce((sum, count) => sum + count, 0);
+    const pediatricBmiBreakdown = { underweight: 0, healthyWeight: 0, overweight: 0, obesity: 0 };
 
     type PopulatedUser = { _id: unknown; name: string; role: string };
     type PopulatedPatient = { _id: unknown; patientType?: "student" | "teacher" | "staff"; studentId: string; firstName: string; lastName: string };
@@ -527,6 +560,9 @@ export class DashboardService {
       analyticsVisitBreakdown,
       bmiRecordedCount,
       bmiBreakdown,
+      pediatricBmiRecordedCount: 0,
+      pediatricBmiBreakdown,
+      bmiUnclassifiedCount: 0,
       recentCases,
       recentActivity: recentActivityDocs.map((log) => ({
         action: log.action,
