@@ -23,7 +23,7 @@ export interface IStockMovement extends Document {
 
 const StockMovementSchema = new Schema<IStockMovement>(
   {
-    medicineId: { type: Schema.Types.ObjectId, ref: "Medicine", required: true, index: true },
+    medicineId: { type: Schema.Types.ObjectId, ref: "Medicine", required: true },
     batchId: { type: Schema.Types.ObjectId, ref: "InventoryBatch" },
     visitId: { type: Schema.Types.ObjectId, ref: "ClinicVisit" },
     type: {

@@ -7,6 +7,7 @@ import type { EmailDeliveryResult } from "./mailer.service";
 
 const CLAIM_TTL_MS = 10 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
+const TERMINAL_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 export async function enqueueNotification(input: {
   kind: NotificationKind;
@@ -156,6 +157,7 @@ export async function processNotificationOutbox(limit = 100): Promise<{ processe
             $set: {
               status: "discarded",
               lastError: "Superseded by a newer appointment status or schedule",
+              expiresAt: new Date(Date.now() + TERMINAL_RETENTION_MS),
             },
             $unset: { claimedAt: 1 },
           },
@@ -174,6 +176,7 @@ export async function processNotificationOutbox(limit = 100): Promise<{ processe
             deliveryStatus: "accepted",
             deliveryRank: 0,
             deliveryUpdatedAt: new Date(),
+            expiresAt: new Date(Date.now() + TERMINAL_RETENTION_MS),
             ...(delivery.providerMessageId ? { providerMessageId: delivery.providerMessageId } : {}),
           },
           $unset: { claimedAt: 1, lastError: 1 },
@@ -190,8 +193,9 @@ export async function processNotificationOutbox(limit = 100): Promise<{ processe
             status: exhausted ? "failed" : "pending",
             availableAt: new Date(Date.now() + retryMinutes * 60_000),
             lastError: error instanceof Error ? error.message : "Unknown delivery error",
+            ...(exhausted ? { expiresAt: new Date(Date.now() + TERMINAL_RETENTION_MS) } : {}),
           },
-          $unset: { claimedAt: 1 },
+          $unset: { claimedAt: 1, ...(exhausted ? {} : { expiresAt: 1 }) },
         },
       );
       result.failed += 1;

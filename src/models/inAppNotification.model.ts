@@ -25,7 +25,7 @@ export interface IInAppNotification extends Document {
 
 const InAppNotificationSchema = new Schema<IInAppNotification>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     kind: {
       type: String,
       enum: [
@@ -51,6 +51,11 @@ const InAppNotificationSchema = new Schema<IInAppNotification>(
 );
 
 InAppNotificationSchema.index({ userId: 1, readAt: 1, createdAt: -1 });
+// Unread notifications have no readAt value and are not removed by this TTL.
+InAppNotificationSchema.index(
+  { readAt: 1 },
+  { expireAfterSeconds: 90 * 24 * 60 * 60 },
+);
 
 export default mongoose.model<IInAppNotification>(
   "InAppNotification",

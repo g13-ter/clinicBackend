@@ -24,6 +24,7 @@ export interface INotificationOutbox extends Document {
   deliveryStatus?: "accepted" | "sent" | "delayed" | "delivered" | "bounced" | "failed" | "complained" | "suppressed";
   deliveryRank: number;
   deliveryUpdatedAt?: Date;
+  expiresAt?: Date;
 }
 
 const NotificationOutboxSchema = new Schema<INotificationOutbox>({
@@ -62,8 +63,14 @@ const NotificationOutboxSchema = new Schema<INotificationOutbox>({
   },
   deliveryRank: { type: Number, default: 0 },
   deliveryUpdatedAt: Date,
+  // Populated only after an item reaches a terminal delivery state.
+  expiresAt: Date,
 }, { timestamps: true });
 
 NotificationOutboxSchema.index({ status: 1, availableAt: 1, claimedAt: 1 });
+NotificationOutboxSchema.index(
+  { expiresAt: 1 },
+  { expireAfterSeconds: 0 },
+);
 
 export default mongoose.model<INotificationOutbox>("NotificationOutbox", NotificationOutboxSchema);
