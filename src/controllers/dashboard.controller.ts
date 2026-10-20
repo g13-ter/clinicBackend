@@ -90,7 +90,13 @@ export const getDashboardStats = async (req: Request, res: Response, next: NextF
       stats.lowStockCount = 0;
       stats.outOfStockCount = 0;
       stats.expiredCount = 0;
+      delete operationalStats.expiredBatches;
+      delete operationalStats.expiringBatches;
       delete operationalStats.recentCases;
+    }
+    if (actor.role !== "nurse") {
+      delete operationalStats.expiredBatches;
+      delete operationalStats.expiringBatches;
     }
     res.status(200).json({ success: true, message: "Dashboard stats retrieved successfully", data: operationalStats });
   } catch (error) {
