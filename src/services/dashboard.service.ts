@@ -4,6 +4,7 @@ import Appointment from "../models/appointment.model";
 import ClinicVisit from "../models/clinicVisit.model";
 import MedicalHistory from "../models/medicalHistory.model";
 import Medicine, { IMedicine } from "../models/medicine.model";
+import InventoryBatch from "../models/inventoryBatch.model";
 import PurchaseRequest from "../models/purchaseRequest.model";
 import AuditLog from "../models/auditLog.model";
 import { computeStatus } from "./medicine.service";
@@ -65,6 +66,21 @@ export interface DashboardStats {
   lowStockCount: number;
   outOfStockCount: number;
   expiredCount: number;
+  expiredBatches: {
+    medicineName: string;
+    batchNumber: string;
+    quantityRemaining: number;
+    unit: string;
+    expiryDate: Date;
+  }[];
+  expiringBatches: {
+    medicineName: string;
+    batchNumber: string;
+    quantityRemaining: number;
+    unit: string;
+    expiryDate: Date;
+    daysUntilExpiry: number;
+  }[];
   pendingPurchaseRequests: number;
   activeUsers: {
     id: string;
@@ -295,6 +311,8 @@ export class DashboardService {
 
   async getStats(doctorId?: string, analyticsPatientType: AnalyticsPatientType = "all"): Promise<DashboardStats> {
     const { start: todayStart, endExclusive: todayEnd } = todayRange();
+    const expiryWindowStart = new Date();
+    const expiryWindowEnd = new Date(expiryWindowStart.getTime() + 30 * 24 * 60 * 60 * 1000);
     const doctorScope = doctorId ? { doctorId } : {};
     const patientType = analyticsPatientType === "all" ? undefined : analyticsPatientType;
     const patientTypeQuery: Record<string, unknown> = patientType === "student"
@@ -321,6 +339,9 @@ export class DashboardService {
       waitingPatients,
       monthlyConsultations,
       allMedicines,
+      expiringInventoryBatches,
+      expiredInventoryBatches,
+      batchTrackedMedicineIds,
       pendingPurchaseRequests,
       activeUserDocs,
       commonComplaintDocs,
@@ -362,6 +383,15 @@ export class DashboardService {
       }),
       MedicalHistory.countDocuments({ dateRecorded: { $gte: startOfMonth() } }),
       Medicine.find(),
+      InventoryBatch.find({
+        quantityRemaining: { $gt: 0 },
+        expiryDate: { $gte: expiryWindowStart, $lte: expiryWindowEnd },
+      }).lean(),
+      InventoryBatch.find({
+        quantityRemaining: { $gt: 0 },
+        expiryDate: { $lt: expiryWindowStart },
+      }).lean(),
+      InventoryBatch.distinct("medicineId", { quantityRemaining: { $gt: 0 } }),
       PurchaseRequest.countDocuments({ status: "pending" }),
       User.find({
         role: { $in: ["doctor", "nurse", "staff"] },
@@ -446,7 +476,75 @@ export class DashboardService {
       const status = computeStatus(med);
       if (status === "Low Stock") lowStockCount += 1;
       else if (status === "Out of Stock") outOfStockCount += 1;
-      else if (status === "Expired") expiredCount += 1;
+    }
+
+    const activeMedicines = new Map(
+      (allMedicines as IMedicine[])
+        .filter((medicine) => medicine.isActive)
+        .map((medicine) => [String(medicine._id), medicine]),
+    );
+    const trackedMedicineIds = new Set(batchTrackedMedicineIds.map(String));
+    const expiredMedicineIds = new Set<string>();
+    const expiredBatches = expiredInventoryBatches.flatMap((batch) => {
+      const medicine = activeMedicines.get(String(batch.medicineId));
+      if (!medicine || !batch.expiryDate) return [];
+      expiredMedicineIds.add(String(medicine._id));
+      return [{
+        medicineName: medicine.name,
+        batchNumber: batch.batchNumber,
+        quantityRemaining: batch.quantityRemaining,
+        unit: medicine.unit,
+        expiryDate: batch.expiryDate,
+      }];
+    });
+    // Keep older stock records visible after expiry even if they have no batch record.
+    for (const medicine of activeMedicines.values()) {
+      if (
+        trackedMedicineIds.has(String(medicine._id)) ||
+        !medicine.expiryDate ||
+        medicine.quantity <= 0 ||
+        medicine.expiryDate >= expiryWindowStart
+      ) continue;
+      expiredMedicineIds.add(String(medicine._id));
+      expiredBatches.push({
+        medicineName: medicine.name,
+        batchNumber: "No batch recorded",
+        quantityRemaining: medicine.quantity,
+        unit: medicine.unit,
+        expiryDate: medicine.expiryDate,
+      });
+    }
+    expiredCount = expiredMedicineIds.size;
+    const expiringBatches = expiringInventoryBatches.flatMap((batch) => {
+      const medicineId = String(batch.medicineId);
+      const medicine = activeMedicines.get(medicineId);
+      if (!medicine || !batch.expiryDate) return [];
+      return [{
+        medicineName: medicine.name,
+        batchNumber: batch.batchNumber,
+        quantityRemaining: batch.quantityRemaining,
+        unit: medicine.unit,
+        expiryDate: batch.expiryDate,
+        daysUntilExpiry: Math.max(0, Math.ceil((batch.expiryDate.getTime() - expiryWindowStart.getTime()) / (24 * 60 * 60 * 1000))),
+      }];
+    });
+    // Include older stock records that predate batch tracking so they still receive an expiry warning.
+    for (const medicine of activeMedicines.values()) {
+      if (
+        trackedMedicineIds.has(String(medicine._id)) ||
+        !medicine.expiryDate ||
+        medicine.quantity <= 0 ||
+        medicine.expiryDate < expiryWindowStart ||
+        medicine.expiryDate > expiryWindowEnd
+      ) continue;
+      expiringBatches.push({
+        medicineName: medicine.name,
+        batchNumber: "No batch recorded",
+        quantityRemaining: medicine.quantity,
+        unit: medicine.unit,
+        expiryDate: medicine.expiryDate,
+        daysUntilExpiry: Math.max(0, Math.ceil((medicine.expiryDate.getTime() - expiryWindowStart.getTime()) / (24 * 60 * 60 * 1000))),
+      });
     }
 
     const visitCounts = new Map(monthlyVisitDocs.map((entry) => [entry._id, entry.visits]));
@@ -542,6 +640,8 @@ export class DashboardService {
       lowStockCount,
       outOfStockCount,
       expiredCount,
+      expiredBatches,
+      expiringBatches,
       pendingPurchaseRequests,
       activeUsers: activeUserDocs.map((user) => ({
         id: String(user._id),
