@@ -10,6 +10,7 @@ import StockMovement from "../models/stockMovement.model";
 import { assertInventoryPeriodOpen } from "../services/monthlyInventory.service";
 import InventoryBatch from "../models/inventoryBatch.model";
 import { withMongoTransaction } from "../utils/transaction";
+import SystemSettings from "../models/systemSettings.model";
 
 const medicineService = new MedicineService();
 const userService = new UserService();
@@ -169,6 +170,11 @@ export const updateMedicine = async (req: Request, res: Response, next: NextFunc
     if (concerningStatuses.includes(afterStatus) && beforeStatus !== afterStatus) {
       (async () => {
         try {
+          const settings = await SystemSettings.findOne({ key: "clinic" })
+            .select("stockAlertsEnabled")
+            .lean();
+          if (settings?.stockAlertsEnabled === false) return;
+
           const adminEmails = await userService.getAdminEmails();
           await Promise.all(
             adminEmails.map((to) =>

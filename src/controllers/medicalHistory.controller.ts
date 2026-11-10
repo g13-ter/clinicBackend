@@ -7,6 +7,7 @@ import logger, { errorMetadata } from "../utils/logger";
 import { AppError } from "../middleware/error.middleware";
 import { buildMedicalCertificateDocx } from "../utils/medicalCertificateDocx";
 import Patient from "../models/patient.model";
+import SystemSettings, { DEFAULT_CLINIC_PROFILE } from "../models/systemSettings.model";
 import { notifyActiveNurses } from "../services/inAppNotification.service";
 
 const medicalHistoryService = new MedicalHistoryService();
@@ -16,13 +17,13 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
   try {
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
-    const { patientId, visitId, diagnosis, prescription, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
+    const { patientId, visitId, diagnosis, prescription, fitnessForWork, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
 
     if (actor.role === "nurse") {
       if (!Array.isArray(prescribedItems) || prescribedItems.length === 0) {
         throw new AppError("A nurse-created medical history entry must include a medication order", 400);
       }
-      if (diagnosis || labRequest || familyHistory || allergies) {
+      if (diagnosis || fitnessForWork || labRequest || familyHistory || allergies) {
         throw new AppError(
           "Nurse medication orders cannot include physician diagnosis, laboratory, or medical-history fields",
           403,
@@ -35,6 +36,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       visitId,
       diagnosis,
       prescription,
+      fitnessForWork,
       prescribedItems,
       labRequest,
       familyHistory,
@@ -192,6 +194,14 @@ export const downloadMedicalCertificate = async (
     if (!physician?.name || physician.role !== "doctor") {
       throw new AppError("A certificate requires a saved physician consultation", 409);
     }
+    if (!entry.fitnessForWork) {
+      throw new AppError("Choose Fit to Work or Not Fit to Work in the consultation before generating the certificate", 409);
+    }
+
+    const clinicSettings = await SystemSettings.findOne({ key: "clinic" })
+      .select("phoneNumber -_id")
+      .lean();
+    const clinicPhoneNumber = clinicSettings?.phoneNumber?.trim() || DEFAULT_CLINIC_PROFILE.phoneNumber;
 
     const medications = (entry.prescribedItems ?? []).map((item) => {
       const instruction = item.instructions ? ` — ${item.instructions}` : "";
@@ -208,6 +218,8 @@ export const downloadMedicalCertificate = async (
       ...(entry.labRequest ? { labRequest: entry.labRequest } : {}),
       medications,
       physicianName: physician.name,
+      fitnessForWork: entry.fitnessForWork,
+      clinicPhoneNumber,
     });
 
     void logAudit({

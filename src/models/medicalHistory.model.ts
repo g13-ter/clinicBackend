@@ -16,6 +16,7 @@ export interface IMedicalHistory extends Document {
   visitId?: mongoose.Types.ObjectId;
   diagnosis: string;
   prescription: string;
+  fitnessForWork?: "fit_to_work" | "not_fit_to_work";
   // Stock-linked items are ordered by an authorized doctor or covering nurse and dispensed by a nurse.
   prescribedItems?: IPrescribedItem[];
   medicationStatus?: "pending" | "accepted" | "dispensing" | "dispensed" | "not_given" | "cancelled";
@@ -83,6 +84,11 @@ const MedicalHistorySchema = new Schema<IMedicalHistory>(
 
     prescription: {
       type: String,
+    },
+
+    fitnessForWork: {
+      type: String,
+      enum: ["fit_to_work", "not_fit_to_work"],
     },
 
     prescribedItems: {

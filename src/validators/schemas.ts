@@ -175,13 +175,21 @@ const visitSchemaBase = z.object({
   nursingRecommendations: z.string().optional(),
   clinicProtocolReference: z.string().optional(),
   isEmergency: z.boolean().optional(),
-  emergencyDetails: z.string().optional(),
+  emergencyDetails: z.string().trim().max(500).optional(),
+  attentionRequested: z.boolean().optional(),
+  attentionRequestDetails: z.string().trim().max(500).optional(),
+  triagePriority: z.enum(["non_urgent", "urgent", "emergency"]).optional(),
+  triageNotes: z.string().trim().max(500).optional(),
 });
 
 const requireEmergencyDetails = (
   value: {
     isEmergency?: boolean | undefined;
     emergencyDetails?: string | undefined;
+    attentionRequested?: boolean | undefined;
+    attentionRequestDetails?: string | undefined;
+    triagePriority?: "non_urgent" | "urgent" | "emergency" | undefined;
+    triageNotes?: string | undefined;
   },
   context: z.RefinementCtx,
 ) => {
@@ -192,6 +200,24 @@ const requireEmergencyDetails = (
       message: "Emergency details are required when care proceeds under the emergency exception",
     });
   }
+  if (value.attentionRequested && !value.attentionRequestDetails?.trim()) {
+    context.addIssue({
+      code: "custom",
+      path: ["attentionRequestDetails"],
+      message: "Please describe why the patient needs nurse attention",
+    });
+  }
+  if (
+    value.triagePriority === "emergency" &&
+    !value.triageNotes?.trim() &&
+    !value.emergencyDetails?.trim()
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["triageNotes"],
+      message: "Add a brief clinical reason for emergency priority",
+    });
+  }
 };
 
 export const createVisitSchema = visitSchemaBase.superRefine(requireEmergencyDetails);
@@ -200,6 +226,23 @@ export const updateVisitSchema = visitSchemaBase
   .omit({ patientId: true })
   .partial()
   .superRefine(requireEmergencyDetails);
+
+export const requestVisitAttentionSchema = z.object({
+  details: z.string().trim().min(3, "Describe the concern for the nurse").max(500),
+});
+
+export const updateVisitTriagePrioritySchema = z.object({
+  priority: z.enum(["non_urgent", "urgent", "emergency"]),
+  notes: z.string().trim().max(500).optional(),
+}).superRefine((value, context) => {
+  if (value.priority === "emergency" && !value.notes?.trim()) {
+    context.addIssue({
+      code: "custom",
+      path: ["notes"],
+      message: "Add a brief clinical reason for emergency priority",
+    });
+  }
+});
 
 export const updateVisitStatusSchema = z.object({
   status: z.enum(["triage", "ready_for_doctor", "in_consultation", "paused", "completed", "cancelled", "referred"]),
@@ -257,6 +300,7 @@ export const createMedicalHistorySchema = z.object({
   visitId: z.string().optional(),
   diagnosis: z.string().optional(),
   prescription: z.string().optional(),
+  fitnessForWork: z.enum(["fit_to_work", "not_fit_to_work"]).optional(),
   prescribedItems: z.array(prescribedItemSchema).optional(),
   labRequest: z.string().optional(),
   familyHistory: z.string().optional(),

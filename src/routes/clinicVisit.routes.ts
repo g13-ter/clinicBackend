@@ -10,6 +10,8 @@ import {
   getTodayVisitCount,
   getQueue,
   markReadyForDoctor,
+  requestVisitAttention,
+  updateVisitTriagePriority,
   updateVisitStatus,
   downloadReferralForm,
 } from "../controllers/clinicVisit.controller";
@@ -17,7 +19,13 @@ import {
 import { protect } from "../middleware/auth.middleware";
 import { allowRoles } from "../middleware/role.middleware";
 import { validateBody } from "../middleware/validate.middleware";
-import { createVisitSchema, updateVisitSchema, updateVisitStatusSchema } from "../validators/schemas";
+import {
+  createVisitSchema,
+  requestVisitAttentionSchema,
+  updateVisitSchema,
+  updateVisitStatusSchema,
+  updateVisitTriagePrioritySchema,
+} from "../validators/schemas";
 
 const router = express.Router();
 
@@ -92,6 +100,23 @@ router.put(
   protect,
   allowRoles("nurse"),
   markReadyForDoctor
+);
+
+// Staff can raise a concern; clinical staff assign the actual triage level.
+router.put(
+  "/:id/attention",
+  protect,
+  allowRoles("staff"),
+  validateBody(requestVisitAttentionSchema),
+  requestVisitAttention,
+);
+
+router.put(
+  "/:id/triage-priority",
+  protect,
+  allowRoles("nurse", "doctor"),
+  validateBody(updateVisitTriagePrioritySchema),
+  updateVisitTriagePriority,
 );
 
 router.get(

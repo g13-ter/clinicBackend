@@ -30,6 +30,74 @@ export class ClinicVisitService {
     return await ClinicVisit.create(data);
   }
 
+  async requestAttention(
+    id: string,
+    details: string,
+    requestedBy: string,
+  ): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
+    const before = await ClinicVisit.findById(id);
+    if (!before || !before.isActive) throw new AppError("Clinic visit not found", 404);
+    if (["completed", "cancelled", "referred"].includes(before.status)) {
+      throw new AppError("Closed visits cannot be flagged for nurse attention", 409);
+    }
+
+    const after = await ClinicVisit.findOneAndUpdate(
+      { _id: id, isActive: true, status: before.status },
+      {
+        attentionRequested: true,
+        attentionRequestDetails: details,
+        attentionRequestedBy: requestedBy,
+        attentionRequestedAt: new Date(),
+        updatedBy: requestedBy,
+        $unset: { attentionReviewedAt: 1 },
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Visit changed; refresh and try again", 409);
+    return { before, after };
+  }
+
+  async setTriagePriority(
+    id: string,
+    priority: NonNullable<IClinicVisit["triagePriority"]>,
+    notes: string | undefined,
+    updatedBy: string,
+    role: "nurse" | "doctor",
+  ): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
+    const before = await ClinicVisit.findById(id);
+    if (!before || !before.isActive) throw new AppError("Clinic visit not found", 404);
+    if (["completed", "cancelled", "referred"].includes(before.status)) {
+      throw new AppError("Closed visits cannot have their triage priority changed", 409);
+    }
+    if (role === "doctor" && before.assignedDoctorId && String(before.assignedDoctorId) !== updatedBy) {
+      throw new AppError("You can only update triage for visits assigned to you", 403);
+    }
+
+    const after = await ClinicVisit.findOneAndUpdate(
+      {
+        _id: id,
+        isActive: true,
+        status: before.status,
+        ...(role === "doctor"
+          ? { $or: [{ assignedDoctorId: updatedBy }, { assignedDoctorId: null }] }
+          : {}),
+      },
+      {
+        triagePriority: priority,
+        triageNotes: notes ?? "",
+        triageAssessedBy: updatedBy,
+        triageAssessedAt: new Date(),
+        attentionReviewedAt: before.attentionRequested ? new Date() : before.attentionReviewedAt,
+        isEmergency: priority === "emergency",
+        ...(priority === "emergency" ? { emergencyDetails: notes } : {}),
+        updatedBy,
+      },
+      { returnDocument: "after", runValidators: true },
+    );
+    if (!after) throw new AppError("Visit changed or was claimed by another clinician; refresh and try again", 409);
+    return { before, after };
+  }
+
   async getVisitsByPatient(
     patientId: string,
     { limit, skip }: PaginationParams,
@@ -176,7 +244,7 @@ export class ClinicVisitService {
       ? { $or: [{ patientType: "student" }, { patientType: { $exists: false } }] }
       : patientType ? { patientType } : {};
     const patientIds = patientType ? await Patient.find(patientQuery).distinct("_id") : undefined;
-    return await ClinicVisit.find({
+    const visits = await ClinicVisit.find({
       isActive: true,
       status: { $in: ["triage", "ready_for_doctor", "in_consultation", "paused"] },
       ...(patientIds ? { patientId: { $in: patientIds } } : {}),
@@ -185,8 +253,16 @@ export class ClinicVisitService {
       .populate("appointmentId", "appointmentDate reason status")
       .populate("assignedDoctorId", "name role")
       .populate("recordedBy", "name role")
-      // Emergencies always appear first, then preserve FIFO order.
-      .sort({ isEmergency: -1, visitDate: 1 });
+      .sort({ visitDate: 1, _id: 1 });
+
+    const priorityRank = (visit: IClinicVisit): number => {
+      if (visit.triagePriority === "emergency" || visit.isEmergency) return 0;
+      if (visit.triagePriority === "urgent") return 1;
+      if (visit.attentionRequested && !visit.attentionReviewedAt) return 2;
+      if (visit.triagePriority === "non_urgent") return 3;
+      return 4;
+    };
+    return visits.sort((left, right) => priorityRank(left) - priorityRank(right));
   }
 
   async markReadyForDoctor(id: string, updatedBy: string): Promise<{ before: IClinicVisit; after: IClinicVisit }> {
@@ -194,6 +270,9 @@ export class ClinicVisitService {
 
     if (!before) {
       throw new AppError("Clinic visit not found", 404);
+    }
+    if (!before.triagePriority) {
+      throw new AppError("Set a triage priority before marking the patient ready for doctor", 409);
     }
     const missingVitals = [
       !before.bloodPressure ? "blood pressure" : "",
@@ -238,6 +317,9 @@ export class ClinicVisitService {
       throw new AppError(`${role === "nurse" ? "Nurses" : "Doctors"} cannot set visit status to ${data.status}`, 403);
     }
     if (data.status === "ready_for_doctor") {
+      if (!before.triagePriority) {
+        throw new AppError("Set a triage priority before marking the student ready for doctor", 409);
+      }
       const missingVitals = [
         !before.bloodPressure ? "blood pressure" : "",
         before.temperature == null ? "temperature" : "",
