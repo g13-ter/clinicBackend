@@ -19,6 +19,15 @@ export interface IClinicVisit extends Document {
   referralOutcome?: string;
   isEmergency: boolean;
   emergencyDetails?: string;
+  triagePriority?: "non_urgent" | "urgent" | "emergency";
+  triageNotes?: string;
+  triageAssessedBy?: mongoose.Types.ObjectId;
+  triageAssessedAt?: Date;
+  attentionRequested?: boolean;
+  attentionRequestDetails?: string;
+  attentionRequestedBy?: mongoose.Types.ObjectId;
+  attentionRequestedAt?: Date;
+  attentionReviewedAt?: Date;
   guardianNotifiedAt?: Date;
   closedAt?: Date;
   closureOutcome?: "returned_to_class" | "sent_home" | "guardian_pickup" | "referred" | "cancelled" | "physician_consultation";
@@ -104,6 +113,18 @@ const ClinicVisitSchema = new Schema<IClinicVisit>(
     referralOutcome: String,
     isEmergency: { type: Boolean, default: false },
     emergencyDetails: String,
+    triagePriority: {
+      type: String,
+      enum: ["non_urgent", "urgent", "emergency"],
+    },
+    triageNotes: { type: String, trim: true, maxlength: 500 },
+    triageAssessedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    triageAssessedAt: Date,
+    attentionRequested: { type: Boolean, default: false },
+    attentionRequestDetails: { type: String, trim: true, maxlength: 500 },
+    attentionRequestedBy: { type: Schema.Types.ObjectId, ref: "User" },
+    attentionRequestedAt: Date,
+    attentionReviewedAt: Date,
     guardianNotifiedAt: Date,
     closedAt: Date,
     closureOutcome: {

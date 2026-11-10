@@ -23,7 +23,12 @@ export interface MedicalCertificateData {
   labRequest?: string;
   medications: string[];
   physicianName: string;
+  fitnessForWork: "fit_to_work" | "not_fit_to_work";
+  clinicPhoneNumber: string;
 }
+
+const physicianNameWithCredentials = (name: string): string =>
+  /(?:,\s*|\s+)M\.?D\.?$/i.test(name.trim()) ? name.trim() : `${name.trim()}, MD`;
 
 const detailRow = (label: string, value: string): TableRow =>
   new TableRow({
@@ -67,6 +72,14 @@ export async function buildMedicalCertificateDocx(
         }),
         new Paragraph({
           children: [
+            new TextRun({ text: "Clinic contact: ", bold: true }),
+            new TextRun(data.clinicPhoneNumber),
+          ],
+          alignment: AlignmentType.CENTER,
+          spacing: { after: 300 },
+        }),
+        new Paragraph({
+          children: [
             new TextRun({ text: "Certificate reference: ", bold: true }),
             new TextRun(data.certificateId),
           ],
@@ -100,6 +113,10 @@ export async function buildMedicalCertificateDocx(
           rows: [
             detailRow("Chief complaint", data.complaint),
             detailRow("Diagnosis", data.diagnosis),
+            detailRow(
+              "Fitness for work",
+              data.fitnessForWork === "fit_to_work" ? "FIT TO WORK" : "NOT FIT TO WORK",
+            ),
             detailRow("Treatment plan", data.treatmentPlan || "Not recorded"),
             detailRow(
               "Prescribed medication",
@@ -109,9 +126,7 @@ export async function buildMedicalCertificateDocx(
           ],
         }),
         new Paragraph({
-          text:
-            "This document confirms the recorded school-clinic consultation. " +
-            "It does not by itself certify fitness for sports, employment, or return to duty.",
+          text: "The fitness-for-work determination above records the treating physician's assessment at the time of this consultation.",
           spacing: { before: 350, after: 700 },
         }),
         new Paragraph({
@@ -119,7 +134,7 @@ export async function buildMedicalCertificateDocx(
           alignment: AlignmentType.RIGHT,
         }),
         new Paragraph({
-          children: [new TextRun({ text: data.physicianName, bold: true })],
+          children: [new TextRun({ text: physicianNameWithCredentials(data.physicianName), bold: true })],
           alignment: AlignmentType.RIGHT,
         }),
         new Paragraph({

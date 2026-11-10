@@ -18,6 +18,9 @@ export class MedicalHistoryService {
   ): Promise<{ entry: IMedicalHistory }> {
     try {
       return await withMongoTransaction(async (session) => {
+        if (context.providerRole === "nurse" && data.fitnessForWork) {
+          throw new AppError("Only a doctor can record fitness-for-work status", 403);
+        }
         const patientQuery = Patient.findById(data.patientId);
         if (session) patientQuery.session(session);
         const patient = await patientQuery;

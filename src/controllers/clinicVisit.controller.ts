@@ -6,7 +6,7 @@ import { getAuthenticatedUser, getAuthenticatedObjectId } from "../utils/authUse
 import { AppError } from "../middleware/error.middleware";
 import { buildReferralDocx } from "../utils/referralDocx";
 import { PatientService } from "../services/patient.service";
-import { createInAppNotification, notifyActiveDoctors } from "../services/inAppNotification.service";
+import { createInAppNotification, notifyActiveDoctors, notifyActiveNurses } from "../services/inAppNotification.service";
 import logger, { errorMetadata } from "../utils/logger";
 import type { IClinicVisit } from "../models/clinicVisit.model";
 
@@ -28,7 +28,7 @@ const notifyDoctorsForVisit = async (
     link: `/dashboard?tab=consultation&visitId=${visit._id}&patientId=${visit.patientId}`,
     resourceType: "ClinicVisit" as const,
     resourceId: String(visit._id),
-    dedupeKey: `doctor:${kind}:${visit._id}`,
+    dedupeKey: `doctor:${kind}:${visit._id}:${visit.triageAssessedAt?.toISOString() ?? visit.visitDate.toISOString()}`,
   };
 
   if (visit.assignedDoctorId) {
@@ -57,8 +57,42 @@ const safelyNotifyDoctorsForVisit = async (
   }
 };
 
+const safelyNotifyClinicalTeamOfAttention = async (visit: IClinicVisit): Promise<void> => {
+  try {
+    const patient = await patientService.getPatientById(String(visit.patientId));
+    const input = {
+      kind: "attention_requested" as const,
+      title: "Nurse attention requested",
+      message: `${patient.firstName} ${patient.lastName}: ${visit.attentionRequestDetails || visit.complaint}`,
+      resourceType: "ClinicVisit" as const,
+      resourceId: String(visit._id),
+      dedupeKey: `attention-requested:${visit._id}:${visit.attentionRequestedAt?.toISOString() ?? visit.visitDate.toISOString()}`,
+    };
+    const attentionFocus = visit.attentionRequestedAt?.getTime() ?? visit.visitDate.getTime();
+    const doctorInput = {
+      ...input,
+      link: `/dashboard?tab=visits&attention=${visit._id}&focus=${attentionFocus}`,
+    };
+    await Promise.all([
+      notifyActiveNurses({ ...input, link: `/dashboard?view=visits&attention=${visit._id}&focus=${attentionFocus}` }),
+      visit.assignedDoctorId
+        ? createInAppNotification({
+            ...doctorInput,
+            userId: String(visit.assignedDoctorId),
+            dedupeKey: `${doctorInput.dedupeKey}:${visit.assignedDoctorId}`,
+          })
+        : notifyActiveDoctors(doctorInput),
+    ]);
+  } catch (error) {
+    logger.error("in_app_attention_notification_creation_failed", {
+      visitId: String(visit._id),
+      ...errorMetadata(error),
+    });
+  }
+};
+
 const visitFieldsByRole = {
-  staff: ["complaint", "isEmergency", "emergencyDetails"],
+  staff: ["complaint", "attentionRequested", "attentionRequestDetails"],
   nurse: [
     "complaint",
     "treatment",
@@ -73,24 +107,21 @@ const visitFieldsByRole = {
     "nursingInterventions",
     "nursingRecommendations",
     "clinicProtocolReference",
-    "isEmergency",
-    "emergencyDetails",
   ],
   doctor: [
     "complaint",
     "treatment",
     "notes",
     "consultationFindings",
-    "isEmergency",
-    "emergencyDetails",
   ],
 } as const;
 
 const restrictVisitFields = (
   role: "staff" | "nurse" | "doctor",
   data: Record<string, unknown>,
+  extraAllowedFields: string[] = [],
 ): Record<string, unknown> => {
-  const allowed = new Set<string>(visitFieldsByRole[role]);
+  const allowed = new Set<string>([...visitFieldsByRole[role], ...extraAllowedFields]);
   const prohibited = Object.keys(data).filter(
     (field) => data[field] !== undefined && !allowed.has(field),
   );
@@ -119,7 +150,17 @@ const restrictVisitFields = (
   );
 };
 
-const toStaffVisit = (visit: { _id: unknown; patientId: unknown; appointmentId?: unknown; assignedDoctorId?: unknown; visitDate: Date; status: string; isActive: boolean }) => ({
+const toStaffVisit = (visit: {
+  _id: unknown;
+  patientId: unknown;
+  appointmentId?: unknown;
+  assignedDoctorId?: unknown;
+  visitDate: Date;
+  status: string;
+  isActive: boolean;
+  attentionRequested?: boolean;
+  attentionReviewedAt?: Date;
+}) => ({
   _id: visit._id,
   patientId: visit.patientId,
   appointmentId: visit.appointmentId,
@@ -127,6 +168,8 @@ const toStaffVisit = (visit: { _id: unknown; patientId: unknown; appointmentId?:
   visitDate: visit.visitDate,
   status: visit.status,
   isActive: visit.isActive,
+  attentionRequested: Boolean(visit.attentionRequested),
+  attentionReviewedAt: visit.attentionReviewedAt,
 });
 
 // GET TODAY COUNT
@@ -155,7 +198,8 @@ export const getQueue = async (req: Request, res: Response, next: NextFunction):
             visit.status === "ready_for_doctor" ||
             visit.status === "in_consultation" ||
             visit.status === "paused";
-          if (!visibleStatus && !visit.isEmergency) return false;
+          const attentionNeedsReview = visit.attentionRequested && !visit.attentionReviewedAt;
+          if (!visibleStatus && !visit.isEmergency && !attentionNeedsReview) return false;
 
           if (!visit.assignedDoctorId) return true;
           const assignedDoctor = visit.assignedDoctorId as unknown as {
@@ -173,6 +217,8 @@ export const getQueue = async (req: Request, res: Response, next: NextFunction):
           visitDate: visit.visitDate,
           status: visit.status,
           isActive: visit.isActive,
+          attentionRequested: Boolean(visit.attentionRequested),
+          attentionReviewedAt: visit.attentionReviewedAt,
         }))
       : roleVisibleQueue;
     res.status(200).json({ success: true, message: "Patient queue retrieved successfully", data });
@@ -206,6 +252,66 @@ export const markReadyForDoctor = async (req: Request, res: Response, next: Next
   }
 };
 
+export const requestVisitAttention = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await clinicVisitService.requestAttention(id, req.body.details, actor.id);
+
+    logAudit({
+      action: "update",
+      resource: "ClinicVisit",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+    await safelyNotifyClinicalTeamOfAttention(after);
+
+    res.status(200).json({ success: true, message: "Nurse attention requested", data: after });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateVisitTriagePriority = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const id = req.params.id as string;
+    const actor = getAuthenticatedUser(req);
+    const { before, after } = await clinicVisitService.setTriagePriority(
+      id,
+      req.body.priority,
+      req.body.notes,
+      actor.id,
+      actor.role as "nurse" | "doctor",
+    );
+
+    logAudit({
+      action: "update",
+      resource: "ClinicVisit",
+      resourceId: id,
+      performedBy: actor.id,
+      before: before.toObject(),
+      after: after.toObject(),
+      method: req.method,
+      path: req.originalUrl,
+    });
+    if (after.triagePriority === "emergency" && before.triagePriority !== "emergency") {
+      await safelyNotifyDoctorsForVisit(after, "emergency");
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Triage priority set to ${after.triagePriority?.replace("_", " ")}`,
+      data: after,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const updateVisitStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const id = req.params.id as string;
@@ -231,7 +337,31 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
     if (actor.role === "admin" || actor.role === "superadmin") {
       throw new AppError("Administrators cannot create clinical visits", 403);
     }
-    const permittedVisitData = restrictVisitFields(actor.role, visitData);
+    const permittedVisitData = restrictVisitFields(
+      actor.role,
+      visitData,
+      actor.role === "nurse"
+        ? ["triagePriority", "triageNotes", "isEmergency", "emergencyDetails"]
+        : [],
+    );
+    if (actor.role === "nurse" && permittedVisitData.triagePriority) {
+      permittedVisitData.triageAssessedBy = getAuthenticatedObjectId(req);
+      permittedVisitData.triageAssessedAt = new Date();
+      permittedVisitData.isEmergency = permittedVisitData.triagePriority === "emergency";
+      if (permittedVisitData.triagePriority === "emergency") {
+        permittedVisitData.emergencyDetails = permittedVisitData.triageNotes;
+      }
+    }
+    if (actor.role === "nurse" && permittedVisitData.isEmergency && !permittedVisitData.triagePriority) {
+      permittedVisitData.triagePriority = "emergency";
+      permittedVisitData.triageAssessedBy = getAuthenticatedObjectId(req);
+      permittedVisitData.triageAssessedAt = new Date();
+      permittedVisitData.triageNotes = permittedVisitData.emergencyDetails;
+    }
+    if (permittedVisitData.attentionRequested) {
+      permittedVisitData.attentionRequestedBy = getAuthenticatedObjectId(req);
+      permittedVisitData.attentionRequestedAt = new Date();
+    }
     await patientService.getPatientById(patientId);
     if (permittedVisitData.heightCm && permittedVisitData.weightKg) {
       permittedVisitData.bmi = Number((
@@ -248,6 +378,9 @@ export const createVisit = async (req: Request, res: Response, next: NextFunctio
 
     if (visit.isEmergency) {
       await safelyNotifyDoctorsForVisit(visit, "emergency");
+    }
+    if (visit.attentionRequested) {
+      await safelyNotifyClinicalTeamOfAttention(visit);
     }
 
     logAudit({

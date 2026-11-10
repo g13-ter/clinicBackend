@@ -6,6 +6,7 @@ export type InAppNotificationKind =
   | "appointment_rescheduled"
   | "appointment_cancelled"
   | "visit_ready"
+  | "attention_requested"
   | "emergency"
   | "medication_order";
 
@@ -34,6 +35,7 @@ const InAppNotificationSchema = new Schema<IInAppNotification>(
         "appointment_rescheduled",
         "appointment_cancelled",
         "visit_ready",
+        "attention_requested",
         "emergency",
         "medication_order",
       ],
