@@ -25,6 +25,14 @@ export class MedicalHistoryService {
         if (session) patientQuery.session(session);
         const patient = await patientQuery;
         if (!patient) throw new AppError("Patient not found", 404);
+        if (
+          context.providerRole === "doctor" &&
+          patient.patientType === "student" &&
+          data.visitId &&
+          !context.closureOutcome
+        ) {
+          throw new AppError("Choose the student's disposition before saving the consultation", 400);
+        }
         if (data.visitId) {
           const existingQuery = MedicalHistory.findOne({ visitId: data.visitId });
           if (session) existingQuery.session(session);
@@ -137,7 +145,7 @@ export class MedicalHistoryService {
               status: "completed",
               closureOutcome: context.providerRole === "nurse"
                 ? context.closureOutcome ?? "returned_to_class"
-                : "physician_consultation",
+                : context.closureOutcome ?? "physician_consultation",
               closedAt: new Date(),
               updatedBy: data.recordedBy,
             },
@@ -216,8 +224,8 @@ export class MedicalHistoryService {
   async getHistoryById(id: string, doctorId?: string): Promise<IMedicalHistory> {
     const entry = await MedicalHistory.findById(id)
       .populate("patientId")
-      .populate("visitId", "visitDate complaint")
-      .populate("recordedBy", "name role")
+      .populate("visitId", "visitDate complaint closureOutcome")
+      .populate("recordedBy", "name role licenseNumber ptrNumber")
       .populate("updatedBy", "name role")
       .populate("medicationDispensedBy", "name role")
       .populate("medicationClaimedBy", "name role")

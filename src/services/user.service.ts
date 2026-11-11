@@ -101,12 +101,15 @@ export class UserService {
 
   async updateOwnProfile(
     id: string,
-    data: { name?: string; email?: string; currentPassword: string; newPassword?: string },
+    data: { name?: string; email?: string; licenseNumber?: string; ptrNumber?: string; currentPassword: string; newPassword?: string },
   ): Promise<{ before: IUser; after: IUser; sessionRevoked: boolean }> {
     const user = await User.findById(id).select("+password +sessionVersion");
     if (!user || !user.isActive) throw new AppError("User not found", 404);
     if (!(await bcrypt.compare(data.currentPassword, user.password))) {
       throw new AppError("Current password is incorrect", 403);
+    }
+    if ((data.licenseNumber !== undefined || data.ptrNumber !== undefined) && user.role !== "doctor") {
+      throw new AppError("Only doctors can update medical license details", 403);
     }
     if (data.email) {
       const normalized = data.email.trim().toLowerCase();
@@ -120,6 +123,8 @@ export class UserService {
       {
         ...(data.name ? { name: data.name } : {}),
         ...(data.email ? { email: data.email.trim().toLowerCase() } : {}),
+        ...(data.licenseNumber !== undefined ? { licenseNumber: data.licenseNumber.trim() } : {}),
+        ...(data.ptrNumber !== undefined ? { ptrNumber: data.ptrNumber.trim() } : {}),
         ...(data.newPassword ? { password: await bcrypt.hash(data.newPassword, 10), mustChangePassword: false } : {}),
         ...(sessionRevoked ? { $inc: { sessionVersion: 1 } } : {}),
       },

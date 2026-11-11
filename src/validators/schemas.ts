@@ -129,9 +129,11 @@ export const updateClinicalProfileSchema = z.object({
 export const updateOwnProfileSchema = z.object({
   name: z.string().min(1).optional(),
   email: z.string().email().optional(),
+  licenseNumber: z.string().trim().max(40).optional(),
+  ptrNumber: z.string().trim().max(40).optional(),
   currentPassword: z.string().min(1, "Current password is required"),
   newPassword: z.string().min(12, "New password must be at least 12 characters").optional(),
-}).refine((value) => value.name !== undefined || value.email !== undefined || value.newPassword !== undefined, {
+}).refine((value) => value.name !== undefined || value.email !== undefined || value.licenseNumber !== undefined || value.ptrNumber !== undefined || value.newPassword !== undefined, {
   message: "Provide at least one profile change",
 });
 
@@ -300,6 +302,7 @@ export const createMedicalHistorySchema = z.object({
   visitId: z.string().optional(),
   diagnosis: z.string().optional(),
   prescription: z.string().optional(),
+  remarks: z.string().trim().max(2000).optional(),
   fitnessForWork: z.enum(["fit_to_work", "not_fit_to_work"]).optional(),
   prescribedItems: z.array(prescribedItemSchema).optional(),
   labRequest: z.string().optional(),

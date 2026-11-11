@@ -1,74 +1,81 @@
 import {
   AlignmentType,
-  BorderStyle,
   Document,
   HeadingLevel,
   Packer,
   Paragraph,
-  Table,
-  TableCell,
-  TableRow,
   TextRun,
-  WidthType,
 } from "docx";
 
 export interface MedicalCertificateData {
   certificateId: string;
-  studentName: string;
-  studentId: string;
+  clinicName: string;
+  clinicLocation: string;
+  clinicPhoneNumber: string;
+  patientName: string;
+  patientAge?: number;
+  patientGender?: string;
+  patientType: "student" | "employee";
+  patientIdentifierLabel: "Student ID" | "Employee ID" | "Patient ID";
+  patientIdentifier: string;
   consultationDate: Date;
   complaint: string;
   diagnosis: string;
-  treatmentPlan?: string;
-  labRequest?: string;
-  medications: string[];
+  remarks?: string;
   physicianName: string;
-  fitnessForWork: "fit_to_work" | "not_fit_to_work";
-  clinicPhoneNumber: string;
+  physicianLicenseNumber?: string;
+  physicianPtrNumber?: string;
+  studentDisposition?: "returned_to_class" | "sent_home" | "guardian_pickup";
+  fitnessForWork?: "fit_to_work" | "not_fit_to_work";
 }
 
 const physicianNameWithCredentials = (name: string): string =>
   /(?:,\s*|\s+)M\.?D\.?$/i.test(name.trim()) ? name.trim() : `${name.trim()}, MD`;
 
-const detailRow = (label: string, value: string): TableRow =>
-  new TableRow({
+const detailParagraph = (label: string, value: string, boldValue = false): Paragraph =>
+  new Paragraph({
     children: [
-      new TableCell({
-        width: { size: 28, type: WidthType.PERCENTAGE },
-        children: [
-          new Paragraph({
-            children: [new TextRun({ text: label, bold: true })],
-          }),
-        ],
-      }),
-      new TableCell({
-        width: { size: 72, type: WidthType.PERCENTAGE },
-        children: [new Paragraph(value || "Not recorded")],
-      }),
+      new TextRun({ text: `${label}: `, bold: true }),
+      new TextRun({ text: value || "Not recorded", bold: boldValue }),
     ],
+    spacing: { after: 220 },
   });
 
 export async function buildMedicalCertificateDocx(
   data: MedicalCertificateData,
 ): Promise<Buffer> {
+  const studentDispositionLabels = {
+    returned_to_class: "May return to class",
+    sent_home: "Advised to go home",
+    guardian_pickup: "Guardian pickup needed",
+  };
+  const disposition = data.patientType === "student"
+    ? data.studentDisposition ? studentDispositionLabels[data.studentDisposition] : "Not recorded"
+    : data.fitnessForWork === "fit_to_work" ? "Fit to work" : "Not fit to work";
+  const remarks = [disposition, data.remarks?.trim()].filter(Boolean).join(". ");
+  const demographicDetails = [
+    data.patientAge != null ? `${data.patientAge} years old` : "",
+    data.patientGender ?? "",
+  ].filter(Boolean).join(", ");
+
   const certificate = new Document({
     sections: [{
       properties: {
         page: {
-          margin: { top: 900, right: 900, bottom: 900, left: 900 },
+          margin: { top: 900, right: 1000, bottom: 900, left: 1000 },
         },
       },
       children: [
         new Paragraph({
-          text: "SCHOOL CLINIC MANAGEMENT",
+          text: data.clinicName.toUpperCase(),
           alignment: AlignmentType.CENTER,
           heading: HeadingLevel.HEADING_1,
+          spacing: { after: 80 },
         }),
         new Paragraph({
-          text: "CLINIC CONSULTATION CERTIFICATE",
+          text: data.clinicLocation,
           alignment: AlignmentType.CENTER,
-          heading: HeadingLevel.TITLE,
-          spacing: { after: 350 },
+          spacing: { after: 80 },
         }),
         new Paragraph({
           children: [
@@ -76,13 +83,20 @@ export async function buildMedicalCertificateDocx(
             new TextRun(data.clinicPhoneNumber),
           ],
           alignment: AlignmentType.CENTER,
-          spacing: { after: 300 },
+          spacing: { after: 180 },
+        }),
+        new Paragraph({
+          text: "MEDICAL CERTIFICATE",
+          alignment: AlignmentType.CENTER,
+          heading: HeadingLevel.TITLE,
+          spacing: { before: 180, after: 350 },
         }),
         new Paragraph({
           children: [
             new TextRun({ text: "Certificate reference: ", bold: true }),
             new TextRun(data.certificateId),
           ],
+          spacing: { after: 100 },
         }),
         new Paragraph({
           children: [
@@ -92,53 +106,58 @@ export async function buildMedicalCertificateDocx(
           spacing: { after: 300 },
         }),
         new Paragraph({
-          text:
-            `This certifies that ${data.studentName} (Student ID ${data.studentId}) ` +
-            `was evaluated at the school clinic on ${data.consultationDate.toLocaleString("en-PH", {
+          children: [new TextRun({ text: "TO WHOM IT MAY CONCERN:", bold: true })],
+          spacing: { after: 220 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: "This is to certify that " }),
+            new TextRun({ text: data.patientName, bold: true }),
+            new TextRun({ text: ` (${data.patientIdentifierLabel} ${data.patientIdentifier}) was seen and examined at the school clinic on ${data.consultationDate.toLocaleString("en-PH", {
               dateStyle: "long",
               timeStyle: "short",
-            })}.`,
-          spacing: { after: 300 },
-        }),
-        new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          borders: {
-            top: { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" },
-            bottom: { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" },
-            left: { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" },
-            right: { style: BorderStyle.SINGLE, size: 4, color: "D1D5DB" },
-            insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: "E5E7EB" },
-            insideVertical: { style: BorderStyle.SINGLE, size: 2, color: "E5E7EB" },
-          },
-          rows: [
-            detailRow("Chief complaint", data.complaint),
-            detailRow("Diagnosis", data.diagnosis),
-            detailRow(
-              "Fitness for work",
-              data.fitnessForWork === "fit_to_work" ? "FIT TO WORK" : "NOT FIT TO WORK",
-            ),
-            detailRow("Treatment plan", data.treatmentPlan || "Not recorded"),
-            detailRow(
-              "Prescribed medication",
-              data.medications.length > 0 ? data.medications.join("\n") : "None prescribed",
-            ),
-            detailRow("Laboratory request", data.labRequest || "None"),
+            })}.` }),
           ],
+          spacing: { after: 100 },
+        }),
+        ...(demographicDetails
+          ? [new Paragraph({ text: demographicDetails, spacing: { after: 220 } })]
+          : []),
+        detailParagraph("Chief complaint", data.complaint, true),
+        detailParagraph("Working diagnosis", data.diagnosis),
+        detailParagraph("Remarks", remarks, true),
+        new Paragraph({
+          text: "This certificate is issued upon request for school-related purposes.",
+          spacing: { before: 120, after: 650 },
         }),
         new Paragraph({
-          text: "The fitness-for-work determination above records the treating physician's assessment at the time of this consultation.",
-          spacing: { before: 350, after: 700 },
-        }),
-        new Paragraph({
-          text: "________________________________",
+          text: "________________________________________",
           alignment: AlignmentType.RIGHT,
+          spacing: { after: 100 },
         }),
         new Paragraph({
           children: [new TextRun({ text: physicianNameWithCredentials(data.physicianName), bold: true })],
           alignment: AlignmentType.RIGHT,
+          spacing: { after: 60 },
         }),
         new Paragraph({
           text: "Attending Physician",
+          alignment: AlignmentType.RIGHT,
+          spacing: { after: 80 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: "License No.: ", bold: true }),
+            new TextRun(data.physicianLicenseNumber || "____________________"),
+          ],
+          alignment: AlignmentType.RIGHT,
+          spacing: { after: 60 },
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: "PTR No.: ", bold: true }),
+            new TextRun(data.physicianPtrNumber || "____________________"),
+          ],
           alignment: AlignmentType.RIGHT,
         }),
       ],
