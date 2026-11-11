@@ -16,6 +16,7 @@ export interface IMedicalHistory extends Document {
   visitId?: mongoose.Types.ObjectId;
   diagnosis: string;
   prescription: string;
+  remarks?: string;
   fitnessForWork?: "fit_to_work" | "not_fit_to_work";
   // Stock-linked items are ordered by an authorized doctor or covering nurse and dispensed by a nurse.
   prescribedItems?: IPrescribedItem[];
@@ -85,6 +86,8 @@ const MedicalHistorySchema = new Schema<IMedicalHistory>(
     prescription: {
       type: String,
     },
+
+    remarks: { type: String, trim: true, maxlength: 2000 },
 
     fitnessForWork: {
       type: String,

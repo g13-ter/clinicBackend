@@ -4,6 +4,8 @@ import { USER_ROLES, type UserRole } from "../types/roles";
 export interface IUser extends Document {
   name: string;
   email: string;
+  licenseNumber?: string;
+  ptrNumber?: string;
   password: string;
   role: UserRole;
   isActive: boolean;
@@ -32,6 +34,9 @@ const UserSchema = new Schema<IUser>(
       lowercase: true,
       trim: true,
     },
+
+    licenseNumber: { type: String, trim: true, maxlength: 40 },
+    ptrNumber: { type: String, trim: true, maxlength: 40 },
 
     password: {
       type: String,

@@ -17,13 +17,13 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
   try {
     const actor = getAuthenticatedUser(req);
     const userId = actor.id;
-    const { patientId, visitId, diagnosis, prescription, fitnessForWork, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
+    const { patientId, visitId, diagnosis, prescription, remarks, fitnessForWork, prescribedItems, labRequest, familyHistory, allergies, closureOutcome } = req.body;
 
     if (actor.role === "nurse") {
       if (!Array.isArray(prescribedItems) || prescribedItems.length === 0) {
         throw new AppError("A nurse-created medical history entry must include a medication order", 400);
       }
-      if (diagnosis || fitnessForWork || labRequest || familyHistory || allergies) {
+      if (diagnosis || remarks || fitnessForWork || labRequest || familyHistory || allergies) {
         throw new AppError(
           "Nurse medication orders cannot include physician diagnosis, laboratory, or medical-history fields",
           403,
@@ -36,6 +36,7 @@ export const createMedicalHistory = async (req: Request, res: Response, next: Ne
       visitId,
       diagnosis,
       prescription,
+      remarks,
       fitnessForWork,
       prescribedItems,
       labRequest,
@@ -175,51 +176,77 @@ export const downloadMedicalCertificate = async (
     const actor = getAuthenticatedUser(req);
     const entry = await medicalHistoryService.getHistoryById(req.params.id as string, actor.id);
     const patient = entry.patientId as unknown as {
+      patientType?: "student" | "teacher" | "staff";
       firstName?: string;
       lastName?: string;
       studentId?: string;
+      employeeId?: string;
+      age?: number;
+      gender?: string;
     };
     const physician = entry.recordedBy as unknown as {
       name?: string;
       role?: string;
+      licenseNumber?: string;
+      ptrNumber?: string;
     };
     const visit = entry.visitId as unknown as {
       visitDate?: Date;
       complaint?: string;
+      closureOutcome?: string;
     } | undefined;
 
-    if (!patient?.firstName || !patient?.lastName || !patient?.studentId) {
-      throw new AppError("The student record is incomplete and a certificate cannot be generated", 409);
+    const isStudent = !patient?.patientType || patient.patientType === "student";
+    const patientIdentifier = isStudent ? patient?.studentId : patient?.employeeId || patient?.studentId;
+    const patientIdentifierLabel = isStudent
+      ? "Student ID"
+      : patient?.employeeId ? "Employee ID" : "Patient ID";
+    if (!patient?.firstName || !patient?.lastName || !patientIdentifier) {
+      throw new AppError("The patient record is incomplete and a certificate cannot be generated", 409);
     }
     if (!physician?.name || physician.role !== "doctor") {
       throw new AppError("A certificate requires a saved physician consultation", 409);
     }
-    if (!entry.fitnessForWork) {
+    const studentDisposition = isStudent && ["returned_to_class", "sent_home", "guardian_pickup"].includes(visit?.closureOutcome ?? "")
+      ? visit?.closureOutcome as "returned_to_class" | "sent_home" | "guardian_pickup"
+      : undefined;
+    if (isStudent && !studentDisposition) {
+      throw new AppError("Choose the student's disposition in the consultation before generating the certificate", 409);
+    }
+    if (!isStudent && !entry.fitnessForWork) {
       throw new AppError("Choose Fit to Work or Not Fit to Work in the consultation before generating the certificate", 409);
     }
 
     const clinicSettings = await SystemSettings.findOne({ key: "clinic" })
-      .select("phoneNumber -_id")
+      .select("clinicName buildingLocation floorRoom phoneNumber -_id")
       .lean();
     const clinicPhoneNumber = clinicSettings?.phoneNumber?.trim() || DEFAULT_CLINIC_PROFILE.phoneNumber;
+    const clinicName = clinicSettings?.clinicName?.trim() || DEFAULT_CLINIC_PROFILE.clinicName;
+    const clinicLocation = [
+      clinicSettings?.buildingLocation || DEFAULT_CLINIC_PROFILE.buildingLocation,
+      clinicSettings?.floorRoom || DEFAULT_CLINIC_PROFILE.floorRoom,
+    ].filter(Boolean).join(", ");
 
-    const medications = (entry.prescribedItems ?? []).map((item) => {
-      const instruction = item.instructions ? ` — ${item.instructions}` : "";
-      return `${item.medicineName}, ${item.quantity} ${item.unit}${instruction}`;
-    });
     const buffer = await buildMedicalCertificateDocx({
       certificateId: String(entry._id),
-      studentName: `${patient.firstName} ${patient.lastName}`,
-      studentId: patient.studentId,
+      clinicName,
+      clinicLocation,
+      clinicPhoneNumber,
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      ...(patient.age != null ? { patientAge: patient.age } : {}),
+      ...(patient.gender ? { patientGender: patient.gender } : {}),
+      patientType: isStudent ? "student" : "employee",
+      patientIdentifierLabel,
+      patientIdentifier,
       consultationDate: visit?.visitDate ?? entry.dateRecorded,
       complaint: visit?.complaint ?? "Not recorded",
       diagnosis: entry.diagnosis || "Not recorded",
-      ...(entry.prescription ? { treatmentPlan: entry.prescription } : {}),
-      ...(entry.labRequest ? { labRequest: entry.labRequest } : {}),
-      medications,
+      ...(entry.remarks ? { remarks: entry.remarks } : {}),
       physicianName: physician.name,
-      fitnessForWork: entry.fitnessForWork,
-      clinicPhoneNumber,
+      ...(physician.licenseNumber ? { physicianLicenseNumber: physician.licenseNumber } : {}),
+      ...(physician.ptrNumber ? { physicianPtrNumber: physician.ptrNumber } : {}),
+      ...(studentDisposition ? { studentDisposition } : {}),
+      ...(!isStudent && entry.fitnessForWork ? { fitnessForWork: entry.fitnessForWork } : {}),
     });
 
     void logAudit({
@@ -231,14 +258,14 @@ export const downloadMedicalCertificate = async (
       path: req.originalUrl,
     });
 
-    const safeStudentId = patient.studentId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const safePatientId = patientIdentifier.replace(/[^a-zA-Z0-9_-]/g, "_");
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="Consultation_Certificate_${safeStudentId}_${entry._id}.docx"`,
+      `attachment; filename="Consultation_Certificate_${safePatientId}_${entry._id}.docx"`,
     );
     res.send(buffer);
   } catch (error) {
